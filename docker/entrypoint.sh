@@ -9,7 +9,7 @@ exit_on_failure() {
 }
 
 # 注册信号处理函数
-trap 'exit_on_failure "$!" "$?"' SIGCHLD
+
 
 cd ${WORKDIR}
 if [ "${NASTOOL_AUTO_UPDATE}" = "true" ]; then
@@ -98,6 +98,7 @@ else
     export PATH=${PATH}:/usr/lib/chromium
 fi
 umask "${UMASK}"
+trap 'exit_on_failure "$!" "$?"' SIGCHLD
 /alist/alist -- server &
 python3 /nas-tools/run.py &
 
