@@ -78,7 +78,8 @@ KEYWORD_BLACKLIST = ['中字', '韩语', '双字', '中英', '日语', '双语',
 # WebDriver路径
 WEBDRIVER_PATH = {
     "Docker": "/usr/lib/chromium/chromedriver",
-    "Synology": "/var/packages/NASTool/target/bin/chromedriver"
+    "Synology": "/var/packages/NASTool/target/bin/chromedriver",
+    "Windows": "D:/SynologyDrive/nas-tools/chromedriver"
 }
 
 # Xvfb虚拟显示路程

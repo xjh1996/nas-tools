@@ -14,16 +14,6 @@ if [ "${NASTOOL_AUTO_UPDATE}" = "true" ]; then
         fi
     fi
     echo "更新程序..."
-    git remote set-url origin "${REPO_URL}" &> /dev/null
-    echo "windows/" > .gitignore
-    if [ "${NASTOOL_VERSION}" == "dev" ]; then
-      branch="dev"
-    else
-      branch="master"
-    fi
-    git clean -dffx
-    git fetch --depth 1 origin ${branch}
-    git reset --hard origin/${branch}
     if [ $? -eq 0 ]; then
         echo "更新成功..."
         # Python依赖包更新
@@ -97,4 +87,7 @@ else
     export PATH=${PATH}:/usr/lib/chromium
 fi
 umask "${UMASK}"
-exec su-exec "${PUID}":"${PGID}" "$(which dumb-init)" "$(which pm2-runtime)" start run.py -n NAStool --interpreter python3
+exec su-exec "${PUID}":"${PGID}" "$(which dumb-init)" "$(which pm2-runtime)" /alist/alist server &
+exec su-exec "${PUID}":"${PGID}" "$(which dumb-init)" "$(which pm2-runtime)" start run.py -n NAStool --interpreter python3 &
+
+wait
