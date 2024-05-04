@@ -29,20 +29,22 @@ RUN apk add --no-cache libffi-dev \
     && apk del libffi-dev \
     && npm install pm2 -g \
     && rm -rf /tmp/* /root/.cache /var/cache/apk/* \
-    && mkdir /alist \
-    && pushd /alist \
+    && mkdir -p /alist/data \
+    && cd /alist \
     && wget https://github.com/alist-org/alist/releases/download/v3.33.0/alist-linux-musl-amd64.tar.gz \ 
     && tar zxvf alist-linux-musl-amd64.tar.gz \
     && rm -rf alist-linux-musl-amd64.tar.gz \
-    && popd
+    && chmod +x alist 
 WORKDIR ${WORKDIR}
 RUN python_ver=$(python3 -V | awk '{print $2}') \
     && echo "${WORKDIR}/" > /usr/lib/python${python_ver%.*}/site-packages/nas-tools.pth \
     && echo 'fs.inotify.max_user_watches=524288' >> /etc/sysctl.conf \
     && echo 'fs.inotify.max_user_instances=524288' >> /etc/sysctl.conf \
     && git config --global pull.ff only \
-    && git clone -b v2.9.1 ${REPO_URL} ${WORKDIR} --depth=1 --recurse-submodule \
+    && git clone -b test ${REPO_URL} ${WORKDIR} --depth=1 --recurse-submodule \
     && git config --global --add safe.directory ${WORKDIR}
 EXPOSE 3000
+EXPOSE 5244
 VOLUME ["/config"]
+VOLUME ["/alist/data"]
 ENTRYPOINT ["/nas-tools/docker/entrypoint.sh"]
