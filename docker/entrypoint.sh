@@ -99,7 +99,7 @@ else
 fi
 umask "${UMASK}"
 trap 'exit_on_failure "$!" "$?"' SIGCHLD
-/alist/alist -- server &
+/alist/alist server &
 python3 /nas-tools/run.py &
 
 wait
