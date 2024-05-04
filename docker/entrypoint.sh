@@ -1,5 +1,14 @@
 #!/bin/sh
 
+# 定义信号处理函数
+exit_on_failure() {
+  echo "A process has failed. Exiting..."
+  exit 1
+}
+
+# 注册信号处理函数
+trap "exit_on_failure" SIGCHLD
+
 cd ${WORKDIR}
 if [ "${NASTOOL_AUTO_UPDATE}" = "true" ]; then
     if [ ! -s /tmp/requirements.txt.sha256sum ]; then
@@ -87,7 +96,7 @@ else
     export PATH=${PATH}:/usr/lib/chromium
 fi
 umask "${UMASK}"
-exec su-exec "${PUID}":"${PGID}" "$(which dumb-init)" "$(which pm2-runtime)" /alist/alist -- server &
-exec su-exec "${PUID}":"${PGID}" "$(which dumb-init)" "$(which pm2-runtime)" start run.py -n NAStool --interpreter python3 &
+/alist/alist -- server &
+python3 /nas-tools/run.py &
 
 wait
