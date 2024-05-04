@@ -2,12 +2,14 @@
 
 # 定义信号处理函数
 exit_on_failure() {
-  echo "A process has failed. Exiting..."
+  local pid=$1
+  local exit_code=$2
+  echo "Process $pid has failed with exit code $exit_code. Exiting..."
   exit 1
 }
 
 # 注册信号处理函数
-trap "exit_on_failure" SIGCHLD
+trap 'exit_on_failure "$!" "$?"' SIGCHLD
 
 cd ${WORKDIR}
 if [ "${NASTOOL_AUTO_UPDATE}" = "true" ]; then
