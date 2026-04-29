@@ -611,13 +611,93 @@ class ModuleConf(object):
             "background": "bg-azure",
             "test_command": "app.downloader.client.client115|Client115",
             "config": {
+                "provider": {
+                    "id": "client115.provider",
+                    "required": True,
+                    "title": "Provider",
+                    "tooltip": "当前建议固定使用 session。open 仅保留为研究入口，因为部分 OpenAPI 权限在真实账号上不稳定",
+                    "type": "select",
+                    "options": {
+                        "session": "Session (Cookie/QRCode)",
+                        "open": "Open API (Experimental)"
+                    },
+                    "default": "session"
+                },
                 "cookie": {
                     "id": "client115.cookie",
-                    "required": True,
+                    "required": False,
                     "title": "Cookie",
                     "tooltip": "115网盘Cookie，通过115网盘网页端抓取Cookie",
                     "type": "text",
                     "placeholder": "USERSESSIONID=xxx;115_lang=zh;UID=xxx;CID=xxx;SEID=xxx"
+                },
+                "qrcode_token": {
+                    "id": "client115.qrcode_token",
+                    "required": False,
+                    "title": "二维码 Token",
+                    "tooltip": "兼容保存二维码会话 uid",
+                    "type": "text",
+                    "placeholder": ""
+                },
+                "qrcode_session": {
+                    "id": "client115.qrcode_session",
+                    "required": False,
+                    "title": "二维码会话",
+                    "tooltip": "保存二维码登录中间态，扫码成功后会自动清空并转存 Cookie",
+                    "type": "text",
+                    "placeholder": "{\"uid\":\"...\",\"time\":123,\"sign\":\"...\"}"
+                },
+                "qrcode_source": {
+                    "id": "client115.qrcode_source",
+                    "required": False,
+                    "title": "二维码设备",
+                    "tooltip": "参考 AList 的 115 设备类型建模",
+                    "type": "select",
+                    "options": {
+                        "web": "web",
+                        "android": "android",
+                        "ios": "ios",
+                        "linux": "linux",
+                        "mac": "mac",
+                        "windows": "windows",
+                        "tv": "tv",
+                        "alipaymini": "alipaymini",
+                        "wechatmini": "wechatmini",
+                        "qandroid": "qandroid"
+                    },
+                    "default": "web"
+                },
+                "refresh_token": {
+                    "id": "client115.refresh_token",
+                    "required": False,
+                    "title": "Open Refresh Token",
+                    "tooltip": "预留给 115 Open 接口鉴权",
+                    "type": "text",
+                    "placeholder": ""
+                },
+                "access_token": {
+                    "id": "client115.access_token",
+                    "required": False,
+                    "title": "Open Access Token",
+                    "tooltip": "后续可用于缓存换取后的 access token",
+                    "type": "text",
+                    "placeholder": ""
+                },
+                "user_agent": {
+                    "id": "client115.user_agent",
+                    "required": False,
+                    "title": "User-Agent",
+                    "tooltip": "部分 115 接口对客户端 UA 敏感，留空时使用系统默认 UA",
+                    "type": "text",
+                    "placeholder": "Mozilla/5.0 115Browser/..."
+                },
+                "limit_rate": {
+                    "id": "client115.limit_rate",
+                    "required": False,
+                    "title": "API 限流 (QPS)",
+                    "tooltip": "115 客户端统一 API 限流，留空时按默认值使用：session=2 / open=1",
+                    "type": "text",
+                    "placeholder": "2"
                 }
             }
         },

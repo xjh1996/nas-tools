@@ -1,9 +1,14 @@
+import os
+
 import log
+from app.downloader.client._base import _IDownloadClient
+from app.downloader.client.pan115_base import Pan115Provider
+from app.downloader.client.pan115_models import TASK_DISPLAY_STATE, Pan115ProviderType
+from app.downloader.client.pan115_open import Pan115OpenProvider
+from app.downloader.client.pan115_session import Pan115SessionProvider
 from app.utils import StringUtils
 from app.utils.types import DownloaderType
 from config import Config
-from app.downloader.client._base import _IDownloadClient
-from app.downloader.client._py115 import Py115
 
 
 class Client115(_IDownloadClient):
@@ -13,30 +18,43 @@ class Client115(_IDownloadClient):
 
     downclient = None
     lasthash = None
+    _persist_config = False
 
     def __init__(self, config=None):
         if config:
             self._client_config = config
+            self._persist_config = False
         else:
-            self._client_config = Config().get_config('client115')
+            self._client_config = Config().get_config("client115")
+            self._persist_config = True
         self.init_config()
         self.connect()
 
     def init_config(self):
         if self._client_config:
-            self.downclient = Py115(self._client_config.get("cookie"))
+            provider_type = Pan115Provider.resolve_provider_type(self._client_config)
+            provider_cls = self._get_provider_cls(provider_type)
+            self.downclient = provider_cls(self._client_config, persist=self._persist_config)
+
+    @staticmethod
+    def _get_provider_cls(provider_type):
+        # Session is the supported path. Open remains a research placeholder.
+        if provider_type == Pan115ProviderType.OPEN:
+            return Pan115OpenProvider
+        return Pan115SessionProvider
 
     @classmethod
     def match(cls, ctype):
         return True if ctype in [cls.schema, cls.client_type] else False
 
     def connect(self):
-        self.downclient.login()
+        if self.downclient:
+            self.downclient.login()
 
     def get_status(self):
         if not self.downclient:
             return False
-        ret = self.downclient.login()
+        ret = self.downclient.ensure_login()
         if not ret:
             log.info(self.downclient.err)
             return False
@@ -50,31 +68,47 @@ class Client115(_IDownloadClient):
         if not ret:
             log.info(f"【{self.client_type}】获取任务列表错误：{self.downclient.err}")
             return tlist
-        if tasks:
-            for task in tasks:
-                if ids:
-                    if task.get("info_hash") not in ids:
-                        continue
-                if status:
-                    if task.get("status") not in status:
-                        continue
-                ret, tdir = self.downclient.getiddir(task.get("file_id"))
-                task["path"] = tdir
-                tlist.append(task)
-
+        for task in tasks or []:
+            task = self.downclient.normalize_task(task)
+            if ids and task.get("info_hash") not in ids:
+                continue
+            if status and task.get("status") not in status:
+                continue
+            lookup_id = task.get("dir_id") or task.get("wp_path_id") or task.get("file_id")
+            if lookup_id:
+                ok, task_dir = self.downclient.getiddir(lookup_id)
+                if ok:
+                    task["path"] = task_dir
+            tlist.append(task)
         return tlist or []
 
     def get_completed_torrents(self, **kwargs):
-        return self.get_torrents(status=[2])
+        return self.get_torrents(status=[2], **kwargs)
 
     def get_downloading_torrents(self, **kwargs):
-        return self.get_torrents(status=[0, 1])
+        return self.get_torrents(status=[0, 1], **kwargs)
+
+    def get_failed_torrents(self, **kwargs):
+        return self.get_torrents(status=[-1], **kwargs)
 
     def remove_torrents_tag(self, **kwargs):
-        pass
+        return False
 
     def get_transfer_task(self, **kwargs):
-        pass
+        torrents = self.get_completed_torrents(**kwargs)
+        trans_tasks = []
+        for torrent in torrents:
+            path = torrent.get("path")
+            name = torrent.get("name")
+            task_id = torrent.get("info_hash")
+            if not path or not name or not task_id:
+                continue
+            true_path = self.get_replace_path(path)
+            trans_tasks.append({
+                "path": os.path.join(true_path, name).replace("\\", "/"),
+                "id": task_id
+            })
+        return trans_tasks
 
     def get_remove_torrents(self, **kwargs):
         return []
@@ -82,15 +116,14 @@ class Client115(_IDownloadClient):
     def add_torrent(self, content, download_dir=None, **kwargs):
         if not self.downclient:
             return False
-        if isinstance(content, str):
-            ret, self.lasthash = self.downclient.addtask(tdir=download_dir, content=content)
-            if not ret:
-                log.error(f"【{self.client_type}】添加下载任务失败：{self.downclient.err}")
-                return None
-            return self.lasthash
-        else:
-            log.info(f"【{self.client_type}】暂时不支持非链接下载")
+        if not isinstance(content, str):
+            log.info(f"【{self.client_type}】暂不支持非链接下载")
             return None
+        ret, self.lasthash = self.downclient.addtask_urls(content=content, download_dir=download_dir)
+        if not ret:
+            log.error(f"【{self.client_type}】添加下载任务失败：{self.downclient.err}")
+            return None
+        return self.lasthash
 
     def delete_torrents(self, delete_file, ids):
         if not self.downclient:
@@ -98,10 +131,10 @@ class Client115(_IDownloadClient):
         return self.downclient.deltask(thash=ids)
 
     def start_torrents(self, ids):
-        pass
+        return False
 
     def stop_torrents(self, ids):
-        pass
+        return False
 
     def set_torrents_status(self, ids, **kwargs):
         return self.delete_torrents(ids=ids, delete_file=False)
@@ -110,32 +143,25 @@ class Client115(_IDownloadClient):
         return []
 
     def change_torrent(self, **kwargs):
-        pass
+        return False
 
     def get_downloading_progress(self, **kwargs):
-        """
-        获取正在下载的种子进度
-        """
-        Torrents = self.get_downloading_torrents()
-        DispTorrents = []
-        for torrent in Torrents:
-            # 进度
-            progress = round(torrent.get('percentDone'), 1)
-            state = "Downloading"
-            _dlspeed = StringUtils.str_filesize(torrent.get('peers'))
-            _upspeed = StringUtils.str_filesize(torrent.get('rateDownload'))
-            speed = "%s%sB/s %s%sB/s" % (chr(8595), _dlspeed, chr(8593), _upspeed)
-            DispTorrents.append({
-                'id': torrent.get('info_hash'),
-                'name': torrent.get('name'),
-                'speed': speed,
-                'state': state,
-                'progress': progress
+        torrents = self.get_downloading_torrents(**kwargs)
+        display_torrents = []
+        for torrent in torrents:
+            progress = round(torrent.get("percentDone"), 1)
+            state = TASK_DISPLAY_STATE.get(torrent.get("status_name"), "Downloading")
+            down_speed = StringUtils.str_filesize(torrent.get("rateDownload"))
+            up_speed = StringUtils.str_filesize(torrent.get("rateUpload"))
+            speed = "%s%sB/s %s%sB/s" % (chr(8595), down_speed, chr(8593), up_speed)
+            display_torrents.append({
+                "id": torrent.get("info_hash"),
+                "name": torrent.get("name"),
+                "speed": speed,
+                "state": state,
+                "progress": progress
             })
-        return DispTorrents
+        return display_torrents
 
     def set_speed_limit(self, **kwargs):
-        """
-        设置速度限制
-        """
-        pass
+        return False

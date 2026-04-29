@@ -252,8 +252,25 @@ transmission:
 
 # 配置 115 网盘下载器
 client115:
+  # 当前建议固定使用 session；open 仅保留为研究入口
+  provider: session
+  auth_type: cookie
   # 115 Cookie 抓包获取
   cookie:
+  # 二维码会话 uid
+  qrcode_token:
+  # 二维码会话中间态(JSON)
+  qrcode_session:
+  # 二维码绑定设备
+  qrcode_source: web
+  # 115 Open refresh token
+  refresh_token:
+  # 115 Open access token
+  access_token:
+  # 可选自定义 UA
+  user_agent:
+  # API 限流，单位 QPS；留空时默认 session=2 / open=1
+  limit_rate:
 
 # 配置Aria2下载器
 aria2:
