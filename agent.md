@@ -650,3 +650,156 @@
 - `remote-stat --path /影音库/downloads/movies/ABF-345`
 
 以上都是只读测试，均成功并已写入 `config/temp/115_client_test_responses/`。
+
+## 17. 远程整理 Planner 第一版
+
+已经新增 `app/downloader/client/pan115_transfer_planner.py`。
+
+定位：
+
+- 这是 `filetransfer.py` 迁移到 115 远端整理前的 dry-run 规划层。
+- 第一版不直接导入 `FileTransfer` 或 `MetaInfo`，避免拉起完整媒体依赖。
+- 调用方需要显式传入媒体元数据，例如 `media_type/title/year/season/episode/videoFormat`。
+
+当前能力：
+
+- 根据 `media.movie_name_format` 生成电影目标路径。
+- 根据 `media.tv_name_format` 生成电视剧/动漫目标路径。
+- 扫描 115 远端源目录，过滤媒体文件后生成移动计划。
+- 使用 `media.min_filesize` 过滤小文件，例如广告视频。
+- 输出 `RemoteFS.move_path` dry-run 计划。
+
+已验证：
+
+- 对 `/影音库/downloads/movies/ABF-345` 执行 `remote-walk`，发现一个 7.89GB 主视频和一个 2MB 广告视频。
+- `remote-plan` 已能过滤广告视频，只为主视频生成计划。
+- 生成目标示例：`/影音库/library/movies/ABF-345 (2026)/ABF-345 (2026) - 1080p.mp4`
+
+安全修正：
+
+- 初版 `RemoteFS.move_path(..., execute=False)` 曾为了拿目标目录 ID 调用 `ensure_dir`，导致 dry-run 也会创建目录。
+- 现已修复：dry-run 只调用 `getdirid` 做只读探测，不创建目录。
+- dry-run 对不存在目标目录会返回 `target_dir_exists=false` 和 `target_dir_would_create=true`。
+
+已知现场影响：
+
+- 修复前的一次 dry-run 已创建空目录：`/影音库/library/movies/ABF-345 (2026)`。
+- 不应擅自删除该目录，后续如需清理应由用户确认后执行。
+
+后续补充：
+
+- `RemoteFS.move_path` 已增加目标存在性检测。
+- 默认不覆盖目标文件；如果 `target_exists=true` 且未显式 `overwrite`，计划会失败并返回 `target already exists`。
+- 只有显式传 `overwrite` 时，执行阶段才允许先删除旧目标再移动。
+- `RemoteFS.normalize_path` 会把 115 返回的 `/根目录/...` 统一归一化为业务路径 `/...`。
+- 测试脚本新增 `remote-plan-task`，可通过 115 离线任务 `info_hash` 推导源路径并生成整理计划。
+
+已验证：
+
+- `remote-plan-task --info-hash 2d7cc2a2bfc7b387a6cfdddd65a3258b353e929f ...`
+- 能从任务推导源目录 `/影音库/downloads/movies/ABF-345`
+- 能过滤广告小文件，只为主视频生成目标移动计划
+
+## 18. 115 配置、API 与 WebDAV 第一版
+
+本轮目标是让前端和接口层能直接面向 115 远端文件系统。
+
+配置层：
+
+- `client115` 新增远端目录配置：
+- `remote_download_path`
+- `remote_movie_path`
+- `remote_tv_path`
+- `remote_anime_path`
+- `webdav_enabled`
+- `webdav_root`
+- `webdav_user`
+- `webdav_password`
+- `webdav_readonly`
+
+API 层：
+
+- 新增 `/api/v1/pan115/config`
+- 新增 `/api/v1/pan115/stat`
+- 新增 `/api/v1/pan115/list`
+- 新增 `/api/v1/pan115/mkdir`
+- 新增 `/api/v1/pan115/move`
+- 新增 `/api/v1/pan115/delete`
+- 新增 `/api/v1/pan115/plan`
+
+这些接口统一走 `Pan115RemoteFS` 和 `Pan115TransferPlanner`，避免前端直接接触 115 原始字段。
+
+WebDAV 层：
+
+- 新增 Flask blueprint：`web/pan115_webdav.py`
+- 注册路径：`/dav/115`
+- 支持 `OPTIONS`
+- 支持 `PROPFIND`
+- 支持 `HEAD/GET` 目录浏览
+- 支持文件 `HEAD/GET` 通过 115 下载直链 302 跳转
+- 支持 `MKCOL`
+- 支持 `DELETE`
+- 支持 `MOVE`
+- `PUT` 暂未实现，返回 501
+
+安全策略：
+
+- WebDAV 默认关闭。
+- WebDAV 默认只读。
+- 配置了 `webdav_user` 或 `webdav_password` 后启用 Basic Auth。
+- 写操作受 `webdav_readonly` 控制。
+
+下载直链：
+
+- 已参考 AList `drivers/115` 和本地 `115driver` / `115drive-webdav` module cache。
+- `_py115.py` 已移植 `pick_code -> proapi.115.com/app/chrome/downurl` 的 RSA/XOR 编码链路。
+- 调用链路为 `_py115.py -> Pan115SessionProvider -> Pan115RemoteFS -> WebDAV GET`。
+- WebDAV 文件访问当前采用 302 跳转到 115 临时下载链接，先不做本地代理流式转发，避免本地承担大文件流量。
+- 测试脚本新增 `remote-download-url`，会把临时 URL 脱敏后持久化响应；需要完整 URL 时显式传 `--show-url`。
+
+重要边界：
+
+- 当前 WebDAV 已能让客户端挂载、浏览 115 目录，并把文件读取交给 115 临时链接。
+- 写操作仍默认只读，需要显式关闭 `webdav_readonly`。
+- `PUT` 暂未实现；后续如果要支持媒体应用写入，需要补 115 上传/秒传链路。
+
+已验证：
+
+- 使用 `C:\Users\xjh1996\AppData\Local\Programs\Python\Python310\python.exe -m py_compile` 检查新增/修改文件，语法通过。
+- `remote-download-url --path /影音库/downloads/movies/ABF-345/hhd800.com@ABF-345.mp4 --user-agent "Mozilla/5.0 115Browser/23.9.3.2"` 成功解析 115 临时下载链接。
+- 下载直链测试响应已持久化到 `config/temp/115_client_test_responses/latest_115_remote_download_url.json`，默认隐藏完整 URL。
+
+## 19. 115 前端配置工作台
+
+已在下载器设置页的 `client115` 弹窗中新增“115 远端工作台”。
+
+位置：
+
+- `web/templates/setting/downloader.html`
+
+当前能力：
+
+- `client115` 不再只依赖通用平铺表单，已改为 115 专属配置面板。
+- 认证配置按 `Provider / 认证方式 / Session / QRCode / OpenAPI Research` 分组。
+- `auth_type` 已补入配置 schema，可在前端选择 `cookie/qrcode/open`。
+- 远端目录配置按下载根、电影库、剧集库、动漫库分组展示。
+- WebDAV 配置按启用开关、只读开关、根目录、用户名、密码分组展示。
+- 保存前会为常用远端目录补默认值，降低空配置误用。
+- Provider/Auth/WebDAV 会触发前端显隐联动。
+- 自动展示当前服务的 WebDAV 地址：`/dav/115/`
+- 支持复制 WebDAV 地址。
+- 支持从配置项快速切换目录：
+- `webdav_root`
+- `remote_download_path`
+- `remote_movie_path`
+- `remote_tv_path`
+- 支持输入任意 115 远端路径并调用 `/api/v1/pan115/list` 浏览。
+- 支持调用 `/api/v1/pan115/stat` 测试路径是否可访问。
+- 目录项可点击下钻。
+
+设计原则：
+
+- 前端只面对标准化远端路径，不接触 115 原始 `fid/cid/pc` 字段。
+- 这个工作台贴在配置弹窗里，用于降低“盲填路径”的成本。
+- 暂不在前端暴露下载直链，避免临时 URL 泄露到页面日志或复制链路。
+- `input_select_GetVal` 已支持 `textarea`，用于保存长 Cookie 和二维码会话 JSON。

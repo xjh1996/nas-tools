@@ -271,6 +271,24 @@ client115:
   user_agent:
   # API 限流，单位 QPS；留空时默认 session=2 / open=1
   limit_rate:
+  # 115 离线下载默认根目录
+  remote_download_path: /影音库/downloads
+  # 115 电影库目录
+  remote_movie_path: /影音库/library/movies
+  # 115 剧集库目录
+  remote_tv_path: /影音库/library/tv
+  # 115 动漫库目录
+  remote_anime_path: /影音库/library/anime
+  # 是否启用内置 115 WebDAV
+  webdav_enabled: false
+  # WebDAV 对外暴露的 115 根目录
+  webdav_root: /影音库/library
+  # WebDAV Basic Auth 用户名；留空则不校验
+  webdav_user:
+  # WebDAV Basic Auth 密码；留空则不校验
+  webdav_password:
+  # WebDAV 是否只读
+  webdav_readonly: true
 
 # 配置Aria2下载器
 aria2:

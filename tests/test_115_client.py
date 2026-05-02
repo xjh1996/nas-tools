@@ -71,7 +71,20 @@ def build_remote_fs(cookie):
             self.err = client.err
             return ret
 
+        def get_download_url(self, pick_code, user_agent=None):
+            ret, link = client.get_download_url(pick_code=pick_code, user_agent=user_agent)
+            self.err = client.err
+            return ret, link
+
     return module.Pan115RemoteFS(Py115ProviderShim())
+
+
+def load_transfer_planner():
+    planner_path = ROOT_PATH / "app" / "downloader" / "client" / "pan115_transfer_planner.py"
+    spec = importlib.util.spec_from_file_location("pan115_transfer_planner_test_module", str(planner_path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def get_state_path(custom_path=None):
@@ -552,13 +565,19 @@ def cmd_remote_move_path(args):
     state = load_state(args.state_path)
     cookie = args.cookie or state.get("cookie")
     fs = build_remote_fs(cookie)
-    ok, plan = fs.move_path(args.source_path, args.target_path, execute=args.execute)
+    ok, plan = fs.move_path(
+        args.source_path,
+        args.target_path,
+        execute=args.execute,
+        overwrite=args.overwrite
+    )
     print_result("115 remote move path", {
         "ok": ok,
         "err": fs.err,
         "source_path": args.source_path,
         "target_path": args.target_path,
         "execute": args.execute,
+        "overwrite": args.overwrite,
         "plan": plan,
         "state_file": str(args.state_path)
     })
@@ -575,6 +594,183 @@ def cmd_remote_delete_path(args):
         "path": args.path,
         "execute": args.execute,
         "plan": plan,
+        "state_file": str(args.state_path)
+    })
+
+
+def cmd_remote_download_url(args):
+    state = load_state(args.state_path)
+    cookie = args.cookie or state.get("cookie")
+    fs = build_remote_fs(cookie)
+    ok, link = fs.download_url(args.path, user_agent=args.user_agent)
+    safe_link = dict(link or {})
+    if safe_link.get("url") and not args.show_url:
+        safe_link["url_prefix"] = safe_link.get("url")[:80]
+        safe_link["url"] = "<hidden; pass --show-url to print>"
+        raw = dict(safe_link.get("raw") or {})
+        raw_url = dict(raw.get("url") or {})
+        if raw_url.get("url"):
+            raw_url["url_prefix"] = raw_url.get("url")[:80]
+            raw_url["url"] = "<hidden; pass --show-url to print>"
+            raw["url"] = raw_url
+            safe_link["raw"] = raw
+    print_result("115 remote download url", {
+        "ok": ok,
+        "err": fs.err,
+        "path": args.path,
+        "show_url": args.show_url,
+        "link": safe_link,
+        "state_file": str(args.state_path)
+    })
+
+
+def cmd_remote_plan(args):
+    state = load_state(args.state_path)
+    cookie = args.cookie or state.get("cookie")
+    fs = build_remote_fs(cookie)
+    planner_module = load_transfer_planner()
+    planner = planner_module.Pan115TransferPlanner(fs, config=Config().get_config())
+    media_info = {
+        "type": args.media_type,
+        "title": args.title,
+        "year": args.year,
+        "season": args.season,
+        "episode": args.episode,
+        "part": args.part,
+        "videoFormat": args.video_format,
+        "releaseGroup": args.release_group,
+        "tmdbid": args.tmdbid
+    }
+    ok, plans = planner.plan(
+        source_path=args.source_path,
+        media_info=media_info,
+        library_root=args.library_root,
+        execute=args.execute,
+        overwrite=args.overwrite
+    )
+    print_result("115 remote transfer plan", {
+        "ok": ok,
+        "err": planner.err,
+        "source_path": args.source_path,
+        "library_root": args.library_root,
+        "execute": args.execute,
+        "overwrite": args.overwrite,
+        "media_info": media_info,
+        "count": len(plans),
+        "plans": plans,
+        "state_file": str(args.state_path)
+    })
+
+
+def _join_remote_path(parent, name):
+    parent = _strip_115_root_name(parent)
+    if parent == "/根目录":
+        parent = "/"
+    elif parent.startswith("/根目录/"):
+        parent = parent[len("/根目录"):]
+    name = (name or "").replace("\\", "/").strip("/")
+    if not parent:
+        parent = "/"
+    if parent == "/":
+        return "/%s" % name if name else "/"
+    return "%s/%s" % (parent, name) if name else parent
+
+
+def _strip_115_root_name(path):
+    path = (path or "/").replace("\\", "/").rstrip("/")
+    if path == "/根目录":
+        return "/"
+    if path.startswith("/根目录/"):
+        return path[len("/根目录"):]
+    return path or "/"
+
+
+def _resolve_task_source_path(client, task):
+    task = client.normalize_task(task)
+    name = task.get("name")
+    file_id = task.get("file_id")
+    if file_id:
+        ok, file_path = client.getiddir(file_id)
+        if ok and file_path and file_path != "/":
+            file_path = _strip_115_root_name(file_path)
+            if not name or file_path.endswith("/%s" % name) or file_path == name:
+                return file_path
+            return _join_remote_path(file_path, name)
+    parent_id = task.get("wp_path_id") or task.get("dir_id")
+    if parent_id:
+        ok, parent_path = client.getiddir(parent_id)
+        if ok and parent_path:
+            return _join_remote_path(parent_path, name)
+    return ""
+
+
+def cmd_remote_plan_task(args):
+    module = load_py115()
+    state = load_state(args.state_path)
+    cookie = args.cookie or state.get("cookie")
+    client = build_client(module, auth_type="cookie", cookie=cookie)
+    ok, tasks = client.gettasklist(page=args.page)
+    if not ok:
+        print_result("115 remote task transfer plan", {
+            "ok": False,
+            "err": client.err,
+            "info_hash": args.info_hash,
+            "state_file": str(args.state_path)
+        })
+        return
+    task = _find_task_by_hash(tasks, args.info_hash)
+    if not task:
+        print_result("115 remote task transfer plan", {
+            "ok": False,
+            "err": "115 task not found",
+            "info_hash": args.info_hash,
+            "state_file": str(args.state_path)
+        })
+        return
+    source_path = _resolve_task_source_path(client, task)
+    if not source_path:
+        print_result("115 remote task transfer plan", {
+            "ok": False,
+            "err": client.err or "failed to resolve task source path",
+            "info_hash": args.info_hash,
+            "task": task,
+            "state_file": str(args.state_path)
+        })
+        return
+
+    fs = build_remote_fs(cookie)
+    planner_module = load_transfer_planner()
+    planner = planner_module.Pan115TransferPlanner(fs, config=Config().get_config())
+    media_info = {
+        "type": args.media_type,
+        "title": args.title or task.get("name"),
+        "year": args.year,
+        "season": args.season,
+        "episode": args.episode,
+        "part": args.part,
+        "videoFormat": args.video_format,
+        "releaseGroup": args.release_group,
+        "tmdbid": args.tmdbid
+    }
+    ok, plans = planner.plan(
+        source_path=source_path,
+        media_info=media_info,
+        library_root=args.library_root,
+        execute=args.execute,
+        overwrite=args.overwrite
+    )
+    print_result("115 remote task transfer plan", {
+        "ok": ok,
+        "err": planner.err,
+        "info_hash": args.info_hash,
+        "source_path": source_path,
+        "library_root": args.library_root,
+        "execute": args.execute,
+        "overwrite": args.overwrite,
+        "media_info": media_info,
+        "task": task,
+        "count": len(plans),
+        "plans": plans,
         "state_file": str(args.state_path)
     })
 
@@ -767,6 +963,7 @@ def build_parser():
     remote_move_parser.add_argument("--source-path", required=True)
     remote_move_parser.add_argument("--target-path", required=True)
     remote_move_parser.add_argument("--execute", action="store_true", help="actually mutate 115 remote files")
+    remote_move_parser.add_argument("--overwrite", action="store_true", help="delete existing target before moving")
     remote_move_parser.set_defaults(func=cmd_remote_move_path)
 
     remote_delete_parser = subparsers.add_parser("remote-delete-path", help="delete a remote path; dry-run by default")
@@ -774,6 +971,54 @@ def build_parser():
     remote_delete_parser.add_argument("--path", required=True)
     remote_delete_parser.add_argument("--execute", action="store_true", help="actually mutate 115 remote files")
     remote_delete_parser.set_defaults(func=cmd_remote_delete_path)
+
+    remote_download_url_parser = subparsers.add_parser(
+        "remote-download-url",
+        help="resolve a 115 remote file path to a temporary download URL"
+    )
+    remote_download_url_parser.add_argument("--cookie", help="cookie string; defaults to state file")
+    remote_download_url_parser.add_argument("--path", required=True)
+    remote_download_url_parser.add_argument("--user-agent")
+    remote_download_url_parser.add_argument("--show-url", action="store_true", help="print full temporary URL")
+    remote_download_url_parser.set_defaults(func=cmd_remote_download_url)
+
+    remote_plan_parser = subparsers.add_parser("remote-plan", help="build a 115 remote transfer plan; dry-run by default")
+    remote_plan_parser.add_argument("--cookie", help="cookie string; defaults to state file")
+    remote_plan_parser.add_argument("--source-path", required=True)
+    remote_plan_parser.add_argument("--library-root", required=True)
+    remote_plan_parser.add_argument("--media-type", default="movie", choices=["movie", "tv", "anime"])
+    remote_plan_parser.add_argument("--title", required=True)
+    remote_plan_parser.add_argument("--year")
+    remote_plan_parser.add_argument("--season")
+    remote_plan_parser.add_argument("--episode")
+    remote_plan_parser.add_argument("--part")
+    remote_plan_parser.add_argument("--video-format")
+    remote_plan_parser.add_argument("--release-group")
+    remote_plan_parser.add_argument("--tmdbid")
+    remote_plan_parser.add_argument("--execute", action="store_true", help="actually mutate 115 remote files")
+    remote_plan_parser.add_argument("--overwrite", action="store_true", help="delete existing target before moving")
+    remote_plan_parser.set_defaults(func=cmd_remote_plan)
+
+    remote_plan_task_parser = subparsers.add_parser(
+        "remote-plan-task",
+        help="build a 115 remote transfer plan from an offline task; dry-run by default"
+    )
+    remote_plan_task_parser.add_argument("--cookie", help="cookie string; defaults to state file")
+    remote_plan_task_parser.add_argument("--info-hash", required=True)
+    remote_plan_task_parser.add_argument("--page", type=int, default=1)
+    remote_plan_task_parser.add_argument("--library-root", required=True)
+    remote_plan_task_parser.add_argument("--media-type", default="movie", choices=["movie", "tv", "anime"])
+    remote_plan_task_parser.add_argument("--title", help="defaults to 115 task name")
+    remote_plan_task_parser.add_argument("--year")
+    remote_plan_task_parser.add_argument("--season")
+    remote_plan_task_parser.add_argument("--episode")
+    remote_plan_task_parser.add_argument("--part")
+    remote_plan_task_parser.add_argument("--video-format")
+    remote_plan_task_parser.add_argument("--release-group")
+    remote_plan_task_parser.add_argument("--tmdbid")
+    remote_plan_task_parser.add_argument("--execute", action="store_true", help="actually mutate 115 remote files")
+    remote_plan_task_parser.add_argument("--overwrite", action="store_true", help="delete existing target before moving")
+    remote_plan_task_parser.set_defaults(func=cmd_remote_plan_task)
 
     alist_token_parser = subparsers.add_parser(
         "alist-open-get-token",

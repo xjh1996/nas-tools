@@ -24,6 +24,10 @@ class Pan115RemoteFS:
             return "/"
         if not path.startswith("/"):
             path = "/%s" % path
+        if path == "/根目录":
+            path = "/"
+        elif path.startswith("/根目录/"):
+            path = path[len("/根目录"):]
         return posixpath.normpath(path) if path != "/" else "/"
 
     def dirname(self, path):
@@ -131,7 +135,7 @@ class Pan115RemoteFS:
         self.err = self.provider.err
         return ret
 
-    def move_path(self, source_path, target_path, execute=False):
+    def move_path(self, source_path, target_path, execute=False, overwrite=False):
         source_path = self.normalize_path(source_path)
         target_path = self.normalize_path(target_path)
         ret, source = self.stat(source_path)
@@ -139,9 +143,19 @@ class Pan115RemoteFS:
             return False, self._plan("move", source_path, target_path, execute, error=self.err)
         target_dir = self.dirname(target_path)
         target_name = self.basename(target_path)
-        ret, target_dir_id = self.ensure_dir(target_dir)
-        if not ret:
-            return False, self._plan("move", source_path, target_path, execute, error=self.err)
+        target_dir_exists = False
+        target_dir_id = ""
+        if execute:
+            ret, target_dir_id = self.ensure_dir(target_dir)
+            if not ret:
+                return False, self._plan("move", source_path, target_path, execute, error=self.err)
+            target_dir_exists = True
+        else:
+            target_dir_exists, target_dir_id = self.provider.getdirid(target_dir)
+
+        target_exists, target_item = self.stat(target_path)
+        if not target_exists:
+            target_item = {}
 
         plan = self._plan(
             "move",
@@ -151,11 +165,25 @@ class Pan115RemoteFS:
             source=source,
             target_dir=target_dir,
             target_dir_id=target_dir_id,
+            target_dir_exists=target_dir_exists,
+            target_dir_would_create=not target_dir_exists,
+            target_exists=target_exists,
+            target=target_item,
+            overwrite=overwrite,
             rename=source.get("name") != target_name
         )
+        if target_exists and not overwrite:
+            plan["error"] = "target already exists"
+            self.err = plan["error"]
+            return False, plan
         if not execute:
             return True, plan
 
+        if target_exists and overwrite:
+            if not self.delete_id(target_item.get("id")):
+                plan["error"] = self.err
+                return False, plan
+            plan["overwritten"] = True
         if not self.move_id(source.get("id"), target_dir):
             plan["error"] = self.err
             return False, plan
@@ -177,6 +205,28 @@ class Pan115RemoteFS:
         plan["executed"] = ret
         plan["error"] = self.err
         return ret, plan
+
+    def download_url(self, path, user_agent=None):
+        path = self.normalize_path(path)
+        ret, item = self.stat(path)
+        if not ret:
+            return False, {}
+        if not item.get("is_file"):
+            self.err = "115 download url requires a file path: %s" % path
+            return False, {}
+        pick_code = item.get("pick_code")
+        if not pick_code:
+            self.err = "115 file missing pick_code: %s" % path
+            return False, {}
+        if not hasattr(self.provider, "get_download_url"):
+            self.err = "115 provider does not support download url"
+            return False, {}
+        ret, link = self.provider.get_download_url(pick_code=pick_code, user_agent=user_agent)
+        self.err = self.provider.err
+        if ret and isinstance(link, dict):
+            link["path"] = path
+            link["item"] = item
+        return ret, link
 
     def normalize_item(self, item):
         item = dict(item or {})

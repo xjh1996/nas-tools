@@ -82,3 +82,8 @@ class Pan115SessionProvider(Pan115Provider):
         ret = self.client.delete(file_ids=file_ids)
         self.err = self.client.err
         return ret
+
+    def get_download_url(self, pick_code, user_agent=None):
+        ret, link = self.client.get_download_url(pick_code=pick_code, user_agent=user_agent)
+        self.err = self.client.err
+        return ret, link

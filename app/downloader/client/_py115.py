@@ -1,13 +1,37 @@
+import base64
 import json
+import os
 import re
 import threading
 import time
 from urllib import parse
 
 import requests
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.PublicKey import RSA
 
 from app.utils import ExceptionUtils, RequestUtils
 from config import Config
+
+
+PAN115_XOR_KEY_SEED = bytes([
+    0xf0, 0xe5, 0x69, 0xae, 0xbf, 0xdc, 0xbf, 0x8a, 0x1a, 0x45, 0xe8, 0xbe, 0x7d, 0xa6, 0x73, 0xb8,
+    0xde, 0x8f, 0xe7, 0xc4, 0x45, 0xda, 0x86, 0xc4, 0x9b, 0x64, 0x8b, 0x14, 0x6a, 0xb4, 0xf1, 0xaa,
+    0x38, 0x01, 0x35, 0x9e, 0x26, 0x69, 0x2c, 0x86, 0x00, 0x6b, 0x4f, 0xa5, 0x36, 0x34, 0x62, 0xa6,
+    0x2a, 0x96, 0x68, 0x18, 0xf2, 0x4a, 0xfd, 0xbd, 0x6b, 0x97, 0x8f, 0x4d, 0x8f, 0x89, 0x13, 0xb7,
+    0x6c, 0x8e, 0x93, 0xed, 0x0e, 0x0d, 0x48, 0x3e, 0xd7, 0x2f, 0x88, 0xd8, 0xfe, 0xfe, 0x7e, 0x86,
+    0x50, 0x95, 0x4f, 0xd1, 0xeb, 0x83, 0x26, 0x34, 0xdb, 0x66, 0x7b, 0x9c, 0x7e, 0x9d, 0x7a, 0x81,
+    0x32, 0xea, 0xb6, 0x33, 0xde, 0x3a, 0xa9, 0x59, 0x34, 0x66, 0x3b, 0xaa, 0xba, 0x81, 0x60, 0x48,
+    0xb9, 0xd5, 0x81, 0x9c, 0xf8, 0x6c, 0x84, 0x77, 0xff, 0x54, 0x78, 0x26, 0x5f, 0xbe, 0xe8, 0x1e,
+    0x36, 0x9f, 0x34, 0x80, 0x5c, 0x45, 0x2c, 0x9b, 0x76, 0xd5, 0x1b, 0x8f, 0xcc, 0xc3, 0xb8, 0xf5
+])
+PAN115_XOR_CLIENT_KEY = bytes([0x78, 0x06, 0xad, 0x4c, 0x33, 0x86, 0x5d, 0x18, 0x4c, 0x01, 0x3f, 0x46])
+PAN115_RSA_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCGhpgMD1okxLnUMCDNLCJwP/P0
+UHVlKQWLHPiPCbhgITZHcZim4mgxSWWb0SLDNZL9ta1HlErR6k02xrFyqtYzjDu2
+rGInUC0BCZOsln0a7wDwyOA43i5NO8LsNory6fEKbx7aT3Ji8TZCDAfDMbhxvxOf
+dPMBDjxP5X3zr7cWgwIDAQAB
+-----END PUBLIC KEY-----"""
 
 
 class Pan115AuthType:
@@ -43,6 +67,7 @@ class Py115:
     QRCODE_STATUS_API = "https://qrcodeapi.115.com/get/status/"
     QRCODE_RESULT_API = "https://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/"
     QRCODE_IMAGE_API = "https://qrcodeapi.115.com/api/1.0/{app}/1.0/qrcode"
+    DOWNLOAD_URL_API = "https://proapi.115.com/app/chrome/downurl"
     OPEN_DEVICE_CODE_API = "https://passportapi.115.com/open/authDeviceCode"
     OPEN_DEVICE_TOKEN_API = "https://passportapi.115.com/open/deviceCodeToToken"
     DEFAULT_QRCODE_SOURCE = "web"
@@ -783,6 +808,61 @@ class Py115:
             self.err = "115 delete exception: %s" % result
         return False
 
+    def get_download_url(self, pick_code, user_agent=None):
+        """
+        Resolve a 115 file pick_code to a temporary download URL.
+
+        This mirrors AList's session implementation:
+        pick_code -> proapi.115.com/app/chrome/downurl -> decoded URL.
+        """
+        if not pick_code:
+            self.err = "115 download url requires pick_code"
+            return False, {}
+        if not self.ensure_login():
+            return False, {}
+        try:
+            key = os.urandom(16)
+            payload = json.dumps({"pickcode": pick_code}, separators=(",", ":")).encode("utf-8")
+            encoded_payload = self._encode_download_payload(payload, key)
+            response = self._post_download_url_res(encoded_payload, user_agent=user_agent)
+            if not response:
+                self.err = "115 download url request failed"
+                return False, {}
+            root_object = response.json()
+            if root_object.get("state") is False:
+                self.err = "Failed to get 115 download url: %s" % (
+                    root_object.get("error") or root_object.get("message") or root_object.get("error_msg")
+                    or root_object.get("errno") or root_object.get("code") or root_object
+                )
+                return False, {}
+            encoded_data = root_object.get("data")
+            if not encoded_data:
+                self.err = "115 download url response missing data"
+                return False, {}
+            if not isinstance(encoded_data, str):
+                encoded_data = json.dumps(encoded_data, ensure_ascii=False)
+            decoded = self._decode_download_payload(encoded_data, key)
+            download_data = json.loads(decoded.decode("utf-8"))
+            for _, info in (download_data or {}).items():
+                url_info = info.get("url") or {}
+                download_url = url_info.get("url")
+                if download_url and self._safe_int(info.get("file_size"), -1) >= 0:
+                    return True, {
+                        "url": download_url,
+                        "file_name": info.get("file_name"),
+                        "file_size": self._safe_int(info.get("file_size"), 0),
+                        "pick_code": info.get("pick_code") or pick_code,
+                        "headers": {
+                            "User-Agent": user_agent or self.user_agent or Config().get_ua()
+                        },
+                        "raw": info
+                    }
+            self.err = "115 download url response is empty"
+        except Exception as result:
+            ExceptionUtils.exception_traceback(result)
+            self.err = "115 get_download_url exception: %s" % result
+        return False, {}
+
     def _resolve_content_url(self, content):
         if not isinstance(content, str):
             return content
@@ -857,6 +937,81 @@ class Py115:
             return []
         return [str(value).strip()] if str(value).strip() else []
 
+    def _post_download_url_res(self, encoded_payload, user_agent=None):
+        headers = dict(getattr(self.req, "_headers", {}) or {})
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        self._wait_limit()
+        session = getattr(self.req, "_session", None)
+        post_kwargs = {
+            "url": self.DOWNLOAD_URL_API,
+            "params": {"t": str(int(time.time()))},
+            "data": {"data": encoded_payload},
+            "verify": False,
+            "headers": headers,
+            "cookies": getattr(self.req, "_cookies", None),
+            "proxies": getattr(self.req, "_proxies", None),
+            "timeout": getattr(self.req, "_timeout", 20)
+        }
+        if session:
+            return session.post(**post_kwargs)
+        return requests.post(**post_kwargs)
+
+    @classmethod
+    def _encode_download_payload(cls, payload, key):
+        data = bytearray(key + payload)
+        body = bytearray(data[16:])
+        cls._xor_transform(body, cls._xor_derive_key(key, 4))
+        body.reverse()
+        cls._xor_transform(body, PAN115_XOR_CLIENT_KEY)
+        data[16:] = body
+        public_key = RSA.import_key(PAN115_RSA_PUBLIC_KEY)
+        cipher = PKCS1_v1_5.new(public_key)
+        block_size = public_key.size_in_bytes() - 11
+        encrypted = bytearray()
+        for offset in range(0, len(data), block_size):
+            encrypted.extend(cipher.encrypt(bytes(data[offset:offset + block_size])))
+        return base64.b64encode(bytes(encrypted)).decode("utf-8")
+
+    @classmethod
+    def _decode_download_payload(cls, encoded_payload, key):
+        data = base64.b64decode(encoded_payload)
+        public_key = RSA.import_key(PAN115_RSA_PUBLIC_KEY)
+        block_size = public_key.size_in_bytes()
+        decrypted = bytearray()
+        for offset in range(0, len(data), block_size):
+            block = data[offset:offset + block_size]
+            value = pow(int.from_bytes(block, "big"), public_key.e, public_key.n)
+            plain = value.to_bytes(max((value.bit_length() + 7) // 8, 1), "big")
+            index = plain.find(b"\x00")
+            if index < 0:
+                raise ValueError("115 download payload RSA decode failed")
+            decrypted.extend(plain[index + 1:])
+        output = bytearray(decrypted[16:])
+        cls._xor_transform(output, cls._xor_derive_key(decrypted[:16], 12))
+        output.reverse()
+        cls._xor_transform(output, cls._xor_derive_key(key, 4))
+        return bytes(output)
+
+    @staticmethod
+    def _xor_derive_key(seed, size):
+        seed = bytes(seed)
+        return bytes(
+            ((seed[index] + PAN115_XOR_KEY_SEED[size * index]) & 0xff)
+            ^ PAN115_XOR_KEY_SEED[size * (size - index - 1)]
+            for index in range(size)
+        )
+
+    @staticmethod
+    def _xor_transform(data, key):
+        data_size = len(data)
+        key_size = len(key)
+        mod = data_size % 4
+        for index in range(mod):
+            data[index] ^= key[index % key_size]
+        for index in range(mod, data_size):
+            data[index] ^= key[(index - mod) % key_size]
 
     def _get_qrcode_session(self):
         session = self.qrcode_session or self._parse_json_value(self.config.get("qrcode_session"))

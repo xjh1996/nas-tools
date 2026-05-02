@@ -19,6 +19,8 @@ from app.conf import SystemConfig, ModuleConf
 from app.doubansync import DoubanSync
 from app.downloader import Downloader
 from app.downloader.client import Qbittorrent, Transmission
+from app.downloader.client._py115 import Py115
+from app.downloader.client.pan115_service import get_pan115_remote_fs
 from app.filetransfer import FileTransfer
 from app.filter import Filter
 from app.helper import DbHelper, ProgressHelper, ThreadHelper, \
@@ -197,6 +199,11 @@ class WebAction:
             "delete_douban_history": self.__delete_douban_history,
             "list_brushtask_torrents": self.__list_brushtask_torrents,
             "set_system_config": self.__set_system_config,
+            "pan115_stat": self.__pan115_stat,
+            "pan115_list": self.__pan115_list,
+            "pan115_qrcode_create": self.__pan115_qrcode_create,
+            "pan115_qrcode_status": self.__pan115_qrcode_status,
+            "pan115_qrcode_exchange": self.__pan115_qrcode_exchange,
             "get_site_user_statistics": self.get_site_user_statistics,
             "send_custom_message": self.send_custom_message,
             "cookiecloud_sync": self.__cookiecloud_sync,
@@ -1234,6 +1241,129 @@ class WebAction:
             Config().save_config(cfg)
 
         return {"code": 0}
+
+    @staticmethod
+    def __pan115_stat(data):
+        """
+        查询 115 远端路径信息，供登录后的设置页调用
+        """
+        path = (data or {}).get("path")
+        if not path:
+            return {"code": 1, "msg": "未指定115远端路径"}
+        try:
+            fs = get_pan115_remote_fs()
+        except Exception as err:
+            return {"code": 1, "msg": str(err)}
+        ret, item = fs.stat(path)
+        if not ret:
+            return {"code": 1, "msg": fs.err or "115路径不可访问"}
+        return {"code": 0, "item": item}
+
+    @staticmethod
+    def __pan115_list(data):
+        """
+        查询 115 远端目录列表，供登录后的设置页调用
+        """
+        data = data or {}
+        path = data.get("path")
+        if not path:
+            return {"code": 1, "msg": "未指定115远端目录"}
+        try:
+            fs = get_pan115_remote_fs()
+        except Exception as err:
+            return {"code": 1, "msg": str(err)}
+        ret, items = fs.listdir(
+            path,
+            offset=StringUtils.str_int(data.get("offset") or 0),
+            limit=StringUtils.str_int(data.get("limit") or 200)
+        )
+        if not ret:
+            return {"code": 1, "msg": fs.err or "115目录不可访问"}
+        return {
+            "code": 0,
+            "path": fs.normalize_path(path),
+            "items": items
+        }
+
+    @staticmethod
+    def __pan115_qrcode_create(data):
+        """
+        创建 115 二维码登录会话，供配置页填入中间态
+        """
+        source = (data or {}).get("qrcode_source") or "web"
+        client = Py115({
+            "auth_type": "qrcode",
+            "qrcode_source": source
+        })
+        ret, session = client.create_qrcode_session()
+        if not ret:
+            return {"code": 1, "msg": client.err or "创建115二维码失败"}
+        return {
+            "code": 0,
+            "session": session,
+            "qrcode_token": session.get("uid"),
+            "qrcode_session": json.dumps(session, ensure_ascii=False),
+            "qrcode_image": session.get("qrcode_image")
+        }
+
+    @staticmethod
+    def __pan115_qrcode_status(data):
+        """
+        查询 115 二维码登录状态
+        """
+        data = data or {}
+        session = data.get("qrcode_session")
+        if isinstance(session, str):
+            try:
+                session = json.loads(session)
+            except (TypeError, ValueError):
+                return {"code": 1, "msg": "二维码会话不是合法JSON"}
+        if not session:
+            return {"code": 1, "msg": "二维码会话为空"}
+        client = Py115({
+            "auth_type": "qrcode",
+            "qrcode_source": data.get("qrcode_source") or "web"
+        })
+        ret, payload = client.get_qrcode_status(session)
+        if not ret:
+            return {"code": 1, "msg": client.err or "查询115二维码状态失败"}
+        status = ((payload or {}).get("data") or {}).get("status")
+        return {
+            "code": 0,
+            "status": status,
+            "payload": payload
+        }
+
+    @staticmethod
+    def __pan115_qrcode_exchange(data):
+        """
+        扫码确认后换取 115 Cookie
+        """
+        data = data or {}
+        source = data.get("qrcode_source") or "web"
+        uid = data.get("uid") or data.get("qrcode_token")
+        session = data.get("qrcode_session")
+        if not uid and session:
+            if isinstance(session, str):
+                try:
+                    session = json.loads(session)
+                except (TypeError, ValueError):
+                    session = {}
+            uid = (session or {}).get("uid")
+        if not uid:
+            return {"code": 1, "msg": "二维码 uid 为空"}
+        client = Py115({
+            "auth_type": "qrcode",
+            "qrcode_source": source
+        })
+        ret, cookie = client.get_qrcode_result(uid, source)
+        if not ret:
+            return {"code": 1, "msg": client.err or "115二维码换Cookie失败"}
+        return {
+            "code": 0,
+            "cookie": cookie,
+            "cookie_len": len(cookie or "")
+        }
 
     def __add_or_edit_sync_path(self, data):
         """

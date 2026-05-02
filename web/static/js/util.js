@@ -205,12 +205,27 @@ function select_GetHiddenVAL(name) {
 function input_select_GetVal(id, prefix=null) {
     let params = {};
     $(`#${id} input`).each(function () {
+        if ($(this).data("configIgnore")) {
+            return;
+        }
         let key = $(this).attr("id");
         if (key) {
             params[(prefix) ? key.replace(prefix, "") : key] = ($(this).attr("type") === "checkbox") ? !!$(this).prop("checked") : $(this).val();
         }
     });
     $(`#${id} select`).each(function () {
+        if ($(this).data("configIgnore")) {
+            return;
+        }
+        let key = $(this).attr("id");
+        if (key) {
+            params[(prefix) ? key.replace(prefix, "") : key] = $(this).val();
+        }
+    });
+    $(`#${id} textarea`).each(function () {
+        if ($(this).data("configIgnore")) {
+            return;
+        }
         let key = $(this).attr("id");
         if (key) {
             params[(prefix) ? key.replace(prefix, "") : key] = $(this).val();

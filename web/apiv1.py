@@ -2,6 +2,8 @@ from flask import Blueprint, request
 from flask_restx import Api, reqparse, Resource
 
 from app.brushtask import BrushTask
+from app.downloader.client.pan115_service import get_pan115_remote_fs
+from app.downloader.client.pan115_transfer_planner import Pan115TransferPlanner
 from app.rsschecker import RssChecker
 from app.sites import Sites
 from app.utils import TokenCache
@@ -44,6 +46,7 @@ filterrule = Apiv1.namespace('filterrule', description='过滤规则')
 words = Apiv1.namespace('words', description='识别词')
 message = Apiv1.namespace('message', description='消息通知')
 douban = Apiv1.namespace('douban', description='豆瓣')
+pan115 = Apiv1.namespace('pan115', description='115网盘')
 
 
 class ApiResource(Resource):
@@ -69,6 +72,232 @@ def Failed():
         "success": False,
         "data": {}
     }
+
+
+def Pan115Success(data=None):
+    return {
+        "code": 0,
+        "success": True,
+        "data": data if data is not None else {}
+    }
+
+
+def Pan115Failed(message, code=1, data=None):
+    return {
+        "code": code,
+        "success": False,
+        "message": str(message or "115 操作失败"),
+        "data": data if data is not None else {}
+    }
+
+
+def Pan115RemoteFS():
+    try:
+        return get_pan115_remote_fs(), None
+    except Exception as err:
+        return None, Pan115Failed(err)
+
+
+def Pan115Bool(value, default=False):
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ["1", "true", "yes", "on"]
+
+
+def Pan115MediaInfo(args):
+    return {
+        "type": args.get("media_type") or args.get("type") or "movie",
+        "title": args.get("title"),
+        "year": args.get("year"),
+        "season": args.get("season"),
+        "episode": args.get("episode"),
+        "part": args.get("part"),
+        "videoFormat": args.get("video_format"),
+        "releaseGroup": args.get("release_group"),
+        "tmdbid": args.get("tmdbid")
+    }
+
+
+@pan115.route('/config')
+class Pan115Config(ClientResource):
+    @staticmethod
+    def post():
+        """
+        查询 115 远端配置
+        """
+        cfg = Config().get_config("client115") or {}
+        return Pan115Success({
+            "provider": cfg.get("provider") or "session",
+            "auth_type": cfg.get("auth_type") or "cookie",
+            "remote_download_path": cfg.get("remote_download_path"),
+            "remote_movie_path": cfg.get("remote_movie_path"),
+            "remote_tv_path": cfg.get("remote_tv_path"),
+            "remote_anime_path": cfg.get("remote_anime_path"),
+            "webdav_enabled": cfg.get("webdav_enabled"),
+            "webdav_root": cfg.get("webdav_root"),
+            "webdav_user": cfg.get("webdav_user"),
+            "webdav_readonly": cfg.get("webdav_readonly")
+        })
+
+
+@pan115.route('/stat')
+class Pan115Stat(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('path', type=str, help='115远端路径', location='form', required=True)
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        查询 115 远端路径信息
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        ret, item = fs.stat(args.get("path"))
+        if not ret:
+            return Pan115Failed(fs.err)
+        return Pan115Success(item)
+
+
+@pan115.route('/list')
+class Pan115List(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('path', type=str, help='115远端目录', location='form', required=True)
+    parser.add_argument('offset', type=int, help='偏移量', location='form', default=0)
+    parser.add_argument('limit', type=int, help='数量', location='form', default=1000)
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        查询 115 远端目录列表
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        ret, items = fs.listdir(args.get("path"), offset=args.get("offset") or 0, limit=args.get("limit") or 1000)
+        if not ret:
+            return Pan115Failed(fs.err)
+        return Pan115Success({
+            "path": fs.normalize_path(args.get("path")),
+            "items": items
+        })
+
+
+@pan115.route('/mkdir')
+class Pan115Mkdir(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('path', type=str, help='115远端目录', location='form', required=True)
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        创建 115 远端目录
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        ret, dir_id = fs.ensure_dir(args.get("path"))
+        if not ret:
+            return Pan115Failed(fs.err)
+        return Pan115Success({
+            "path": fs.normalize_path(args.get("path")),
+            "dir_id": dir_id
+        })
+
+
+@pan115.route('/move')
+class Pan115Move(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('source_path', type=str, help='源115远端路径', location='form', required=True)
+    parser.add_argument('target_path', type=str, help='目标115远端路径', location='form', required=True)
+    parser.add_argument('execute', type=str, help='是否执行', location='form')
+    parser.add_argument('overwrite', type=str, help='是否覆盖', location='form')
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        移动/重命名 115 远端文件
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        ret, plan = fs.move_path(
+            args.get("source_path"),
+            args.get("target_path"),
+            execute=Pan115Bool(args.get("execute")),
+            overwrite=Pan115Bool(args.get("overwrite"))
+        )
+        if not ret:
+            return Pan115Failed(plan.get("error") or fs.err, data=plan)
+        return Pan115Success(plan)
+
+
+@pan115.route('/delete')
+class Pan115Delete(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('path', type=str, help='115远端路径', location='form', required=True)
+    parser.add_argument('execute', type=str, help='是否执行', location='form')
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        删除 115 远端文件/目录
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        ret, plan = fs.delete_path(args.get("path"), execute=Pan115Bool(args.get("execute")))
+        if not ret:
+            return Pan115Failed(plan.get("error") or fs.err, data=plan)
+        return Pan115Success(plan)
+
+
+@pan115.route('/plan')
+class Pan115Plan(ClientResource):
+    parser = reqparse.RequestParser()
+    parser.add_argument('source_path', type=str, help='源115远端路径', location='form', required=True)
+    parser.add_argument('library_root', type=str, help='媒体库根目录', location='form', required=True)
+    parser.add_argument('media_type', type=str, help='媒体类型 movie/tv/anime', location='form')
+    parser.add_argument('title', type=str, help='标题', location='form', required=True)
+    parser.add_argument('year', type=str, help='年份', location='form')
+    parser.add_argument('season', type=str, help='季', location='form')
+    parser.add_argument('episode', type=str, help='集', location='form')
+    parser.add_argument('part', type=str, help='分集/分段', location='form')
+    parser.add_argument('video_format', type=str, help='视频规格', location='form')
+    parser.add_argument('release_group', type=str, help='发布组', location='form')
+    parser.add_argument('tmdbid', type=str, help='TMDB ID', location='form')
+    parser.add_argument('execute', type=str, help='是否执行', location='form')
+    parser.add_argument('overwrite', type=str, help='是否覆盖', location='form')
+
+    @pan115.doc(parser=parser)
+    def post(self):
+        """
+        生成/执行 115 远端整理计划
+        """
+        args = self.parser.parse_args()
+        fs, error = Pan115RemoteFS()
+        if error:
+            return error
+        planner = Pan115TransferPlanner(fs, config=Config().get_config())
+        ret, plans = planner.plan(
+            source_path=args.get("source_path"),
+            media_info=Pan115MediaInfo(args),
+            library_root=args.get("library_root"),
+            execute=Pan115Bool(args.get("execute")),
+            overwrite=Pan115Bool(args.get("overwrite"))
+        )
+        if not ret:
+            return Pan115Failed(planner.err or fs.err, data={"plans": plans})
+        return Pan115Success({
+            "plans": plans
+        })
 
 
 @user.route('/login')

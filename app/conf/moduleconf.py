@@ -623,6 +623,19 @@ class ModuleConf(object):
                     },
                     "default": "session"
                 },
+                "auth_type": {
+                    "id": "client115.auth_type",
+                    "required": True,
+                    "title": "认证方式",
+                    "tooltip": "session provider 下使用 cookie 或二维码换会话；open 已保留但不建议使用",
+                    "type": "select",
+                    "options": {
+                        "cookie": "Cookie",
+                        "qrcode": "QRCode",
+                        "open": "Open API (Research)"
+                    },
+                    "default": "cookie"
+                },
                 "cookie": {
                     "id": "client115.cookie",
                     "required": False,
@@ -698,6 +711,78 @@ class ModuleConf(object):
                     "tooltip": "115 客户端统一 API 限流，留空时按默认值使用：session=2 / open=1",
                     "type": "text",
                     "placeholder": "2"
+                },
+                "remote_download_path": {
+                    "id": "client115.remote_download_path",
+                    "required": False,
+                    "title": "115 下载根目录",
+                    "tooltip": "离线任务默认保存目录，例如 /影音库/downloads",
+                    "type": "text",
+                    "placeholder": "/影音库/downloads"
+                },
+                "remote_movie_path": {
+                    "id": "client115.remote_movie_path",
+                    "required": False,
+                    "title": "115 电影库目录",
+                    "tooltip": "远程整理 planner 的电影目标根目录",
+                    "type": "text",
+                    "placeholder": "/影音库/library/movies"
+                },
+                "remote_tv_path": {
+                    "id": "client115.remote_tv_path",
+                    "required": False,
+                    "title": "115 剧集库目录",
+                    "tooltip": "远程整理 planner 的电视剧目标根目录",
+                    "type": "text",
+                    "placeholder": "/影音库/library/tv"
+                },
+                "remote_anime_path": {
+                    "id": "client115.remote_anime_path",
+                    "required": False,
+                    "title": "115 动漫库目录",
+                    "tooltip": "远程整理 planner 的动漫目标根目录",
+                    "type": "text",
+                    "placeholder": "/影音库/library/anime"
+                },
+                "webdav_enabled": {
+                    "id": "client115.webdav_enabled",
+                    "required": False,
+                    "title": "启用 115 WebDAV",
+                    "tooltip": "启用后通过 /dav/115 暴露 115 远端目录。V1 先支持 PROPFIND/MKCOL/MOVE/DELETE",
+                    "type": "switch",
+                    "default": False
+                },
+                "webdav_root": {
+                    "id": "client115.webdav_root",
+                    "required": False,
+                    "title": "WebDAV 根目录",
+                    "tooltip": "映射到 /dav/115 的 115 远端根目录",
+                    "type": "text",
+                    "placeholder": "/影音库/library"
+                },
+                "webdav_user": {
+                    "id": "client115.webdav_user",
+                    "required": False,
+                    "title": "WebDAV 用户名",
+                    "tooltip": "留空时不启用 Basic Auth 用户名校验",
+                    "type": "text",
+                    "placeholder": "nas"
+                },
+                "webdav_password": {
+                    "id": "client115.webdav_password",
+                    "required": False,
+                    "title": "WebDAV 密码",
+                    "tooltip": "建议单独设置给媒体服务器使用的只读密码",
+                    "type": "password",
+                    "placeholder": ""
+                },
+                "webdav_readonly": {
+                    "id": "client115.webdav_readonly",
+                    "required": False,
+                    "title": "WebDAV 只读",
+                    "tooltip": "启用后禁止 MKCOL/MOVE/DELETE/PUT 等写操作",
+                    "type": "switch",
+                    "default": True
                 }
             }
         },
