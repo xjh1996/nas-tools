@@ -1,9 +1,11 @@
+import mimetypes
+import os
 import posixpath
 from email.utils import formatdate
 from urllib.parse import quote, unquote, urlparse
 from xml.sax.saxutils import escape
 
-from flask import Blueprint, make_response, redirect, request
+from flask import Blueprint, make_response, redirect, request, send_file
 
 from app.downloader.client.pan115_service import derive_pan115_paths, get_pan115_remote_fs
 from config import Config
@@ -12,6 +14,7 @@ from config import Config
 pan115_webdav_bp = Blueprint("pan115_webdav", __name__)
 
 DAV_METHODS = ["OPTIONS", "PROPFIND", "HEAD", "GET", "MKCOL", "DELETE", "MOVE", "PUT"]
+OVERLAY_DIR = "pan115_webdav_overlay"
 
 
 @pan115_webdav_bp.route("", defaults={"req_path": ""}, methods=DAV_METHODS, strict_slashes=False)
@@ -27,8 +30,6 @@ def pan115_webdav(req_path):
     method = request.method.upper()
     if method == "OPTIONS":
         return _options()
-    if method == "PUT":
-        return _plain("115 WebDAV PUT is not implemented yet", 501)
 
     readonly = _truthy(cfg.get("webdav_readonly"), default=True)
     try:
@@ -45,6 +46,8 @@ def pan115_webdav(req_path):
         return _get_or_head(fs, remote_path)
     if readonly:
         return _plain("115 WebDAV is readonly", 403)
+    if method == "PUT":
+        return _put_overlay(remote_path)
     if method == "MKCOL":
         return _mkcol(fs, remote_path)
     if method == "DELETE":
@@ -88,15 +91,24 @@ def _options():
 def _propfind(fs, cfg, remote_path, req_path):
     depth = request.headers.get("Depth", "1")
     ret, item = fs.stat(remote_path)
-    if not ret:
+    overlay_item = _overlay_item(remote_path)
+    if not ret and not overlay_item:
         return _plain(fs.err or "Not found", 404)
+    if overlay_item and (not ret or overlay_item.get("is_file")):
+        item = overlay_item
 
     rows = [(_href(req_path, item.get("is_dir")), item)]
     if item.get("is_dir") and depth != "0":
-        ret, items = fs.listdir(remote_path)
-        if not ret:
-            return _plain(fs.err or "List failed", 500)
-        for child in items:
+        children = {}
+        if ret:
+            ret_list, items = fs.listdir(remote_path)
+            if not ret_list:
+                return _plain(fs.err or "List failed", 500)
+            for child in items:
+                children[child.get("name")] = child
+        for child in _overlay_children(remote_path):
+            children[child.get("name")] = child
+        for child in children.values():
             child_req_path = _child_req_path(req_path, child.get("name"))
             rows.append((_href(child_req_path, child.get("is_dir")), child))
 
@@ -111,17 +123,35 @@ def _propfind(fs, cfg, remote_path, req_path):
 
 
 def _get_or_head(fs, remote_path):
+    overlay_item = _overlay_item(remote_path)
+    if overlay_item and overlay_item.get("is_file"):
+        if request.method.upper() == "HEAD":
+            resp = make_response("", 200)
+            resp.headers["Content-Length"] = str(overlay_item.get("size") or 0)
+            resp.headers["Content-Type"] = mimetypes.guess_type(overlay_item.get("path") or "")[0] or "application/octet-stream"
+            _dav_headers(resp)
+            return resp
+        resp = send_file(overlay_item.get("path"), conditional=True)
+        _dav_headers(resp)
+        return resp
+
     ret, item = fs.stat(remote_path)
-    if not ret:
+    if not ret and not overlay_item:
         return _plain(fs.err or "Not found", 404)
+    if overlay_item and not ret:
+        item = overlay_item
     if item.get("is_dir"):
         if request.method.upper() == "HEAD":
             resp = make_response("", 200)
         else:
-            ret, items = fs.listdir(remote_path)
-            if not ret:
-                return _plain(fs.err or "List failed", 500)
-            body = "\n".join([child.get("name") or "" for child in items])
+            names = []
+            if ret:
+                ret_list, items = fs.listdir(remote_path)
+                if not ret_list:
+                    return _plain(fs.err or "List failed", 500)
+                names.extend([child.get("name") or "" for child in items])
+            names.extend([child.get("name") or "" for child in _overlay_children(remote_path)])
+            body = "\n".join(sorted(set(names)))
             resp = make_response(body, 200)
             resp.headers["Content-Type"] = "text/plain; charset=utf-8"
         _dav_headers(resp)
@@ -149,10 +179,35 @@ def _mkcol(fs, remote_path):
 
 
 def _delete(fs, remote_path):
+    overlay_path = _overlay_path(remote_path)
+    if overlay_path and os.path.exists(overlay_path):
+        if os.path.isdir(overlay_path):
+            return _plain("Overlay directory delete is not supported", 409)
+        os.remove(overlay_path)
+        resp = make_response("", 204)
+        _dav_headers(resp)
+        return resp
     ret, plan = fs.delete_path(remote_path, execute=True)
     if not ret:
         return _plain(plan.get("error") or fs.err or "DELETE failed", 404)
     resp = make_response("", 204)
+    _dav_headers(resp)
+    return resp
+
+
+def _put_overlay(remote_path):
+    overlay_path = _overlay_path(remote_path)
+    if not overlay_path:
+        return _plain("Invalid overlay path", 400)
+    os.makedirs(os.path.dirname(overlay_path), exist_ok=True)
+    existed = os.path.exists(overlay_path)
+    with open(overlay_path, "wb") as target:
+        while True:
+            chunk = request.stream.read(1024 * 1024)
+            if not chunk:
+                break
+            target.write(chunk)
+    resp = make_response("", 204 if existed else 201)
     _dav_headers(resp)
     return resp
 
@@ -175,6 +230,51 @@ def _move(fs, cfg, remote_path):
     resp = make_response("", 201)
     _dav_headers(resp)
     return resp
+
+
+def _overlay_root():
+    root = os.path.join(Config().get_config_path(), OVERLAY_DIR)
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+def _overlay_path(remote_path):
+    root = os.path.realpath(_overlay_root())
+    rel_path = _normalize_remote_root(remote_path).lstrip("/")
+    overlay_path = os.path.realpath(os.path.join(root, rel_path))
+    if overlay_path != root and not overlay_path.startswith("%s%s" % (root, os.sep)):
+        return None
+    return overlay_path
+
+
+def _overlay_item(remote_path):
+    overlay_path = _overlay_path(remote_path)
+    if not overlay_path or not os.path.exists(overlay_path):
+        return None
+    is_dir = os.path.isdir(overlay_path)
+    return {
+        "id": overlay_path,
+        "name": "" if _normalize_remote_root(remote_path) == "/" else posixpath.basename(_normalize_remote_root(remote_path)),
+        "path": overlay_path,
+        "parent_path": posixpath.dirname(_normalize_remote_root(remote_path)) or "/",
+        "is_dir": is_dir,
+        "is_file": not is_dir,
+        "size": 0 if is_dir else os.path.getsize(overlay_path),
+        "raw": {}
+    }
+
+
+def _overlay_children(remote_path):
+    overlay_path = _overlay_path(remote_path)
+    if not overlay_path or not os.path.isdir(overlay_path):
+        return []
+    children = []
+    for name in os.listdir(overlay_path):
+        child_remote = posixpath.join(_normalize_remote_root(remote_path), name)
+        item = _overlay_item(child_remote)
+        if item:
+            children.append(item)
+    return children
 
 
 def _prop_response(href, item):
