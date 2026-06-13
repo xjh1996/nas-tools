@@ -101,6 +101,14 @@ def load_state(state_path):
     return json.loads(state_path.read_text(encoding="utf-8"))
 
 
+def resolve_cookie(args, state):
+    if args.cookie:
+        return args.cookie
+    if state.get("cookie"):
+        return state.get("cookie")
+    return (Config().get_config("client115") or {}).get("cookie")
+
+
 def save_state(state_path, state):
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -219,7 +227,7 @@ def cmd_qrcode_exchange(args):
 def cmd_cookie_login(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok = client.login()
     payload = {
@@ -235,7 +243,7 @@ def cmd_cookie_login(args):
 def cmd_listdir(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, items = client.listdir(cid=args.cid, offset=args.offset, limit=args.limit)
     payload = {
@@ -254,7 +262,7 @@ def cmd_listdir(args):
 def cmd_gettasklist(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, tasks = client.gettasklist(page=args.page)
     payload = {
@@ -280,7 +288,7 @@ def _find_task_by_hash(tasks, info_hash):
 def cmd_gettask(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, tasks = client.gettasklist(page=args.page)
     task = _find_task_by_hash(tasks if ok else [], args.info_hash)
@@ -298,7 +306,7 @@ def cmd_gettask(args):
 def cmd_wait_task(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     deadline = time.time() + args.timeout
     last_task = {}
@@ -347,7 +355,7 @@ def cmd_wait_task(args):
 def cmd_getdirid(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, dir_id = client.getdirid(args.path)
     payload = {
@@ -363,7 +371,7 @@ def cmd_getdirid(args):
 def cmd_ensure_dir(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, dir_id = client.ensure_dir(args.path)
     payload = {
@@ -379,7 +387,7 @@ def cmd_ensure_dir(args):
 def cmd_addtask(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     dir_ok, dir_id = client.ensure_dir(args.target_path)
     if not dir_ok:
@@ -409,7 +417,7 @@ def cmd_addtask(args):
 def cmd_listdir_path(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     dir_ok, dir_id = client.getdirid(args.path)
     if not dir_ok:
@@ -440,7 +448,7 @@ def cmd_listdir_path(args):
 def cmd_move(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     dir_ok, dir_id = client.ensure_dir(args.target_path)
     payload = {
@@ -470,7 +478,7 @@ def cmd_move(args):
 def cmd_rename(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     payload = {
         "ok": False,
@@ -494,7 +502,7 @@ def cmd_rename(args):
 def cmd_delete(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     payload = {
         "ok": False,
@@ -516,7 +524,7 @@ def cmd_delete(args):
 
 def cmd_remote_stat(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, item = fs.stat(args.path)
     print_result("115 remote stat", {
@@ -530,7 +538,7 @@ def cmd_remote_stat(args):
 
 def cmd_remote_list(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, items = fs.listdir(args.path, offset=args.offset, limit=args.limit)
     print_result("115 remote list", {
@@ -547,7 +555,7 @@ def cmd_remote_list(args):
 
 def cmd_remote_walk(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, items = fs.walk(args.path, max_depth=args.max_depth)
     print_result("115 remote walk", {
@@ -563,7 +571,7 @@ def cmd_remote_walk(args):
 
 def cmd_remote_move_path(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, plan = fs.move_path(
         args.source_path,
@@ -585,7 +593,7 @@ def cmd_remote_move_path(args):
 
 def cmd_remote_delete_path(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, plan = fs.delete_path(args.path, execute=args.execute)
     print_result("115 remote delete path", {
@@ -600,7 +608,7 @@ def cmd_remote_delete_path(args):
 
 def cmd_remote_download_url(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     ok, link = fs.download_url(args.path, user_agent=args.user_agent)
     safe_link = dict(link or {})
@@ -626,7 +634,7 @@ def cmd_remote_download_url(args):
 
 def cmd_remote_plan(args):
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     fs = build_remote_fs(cookie)
     planner_module = load_transfer_planner()
     planner = planner_module.Pan115TransferPlanner(fs, config=Config().get_config())
@@ -707,7 +715,7 @@ def _resolve_task_source_path(client, task):
 def cmd_remote_plan_task(args):
     module = load_py115()
     state = load_state(args.state_path)
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     client = build_client(module, auth_type="cookie", cookie=cookie)
     ok, tasks = client.gettasklist(page=args.page)
     if not ok:
@@ -797,7 +805,7 @@ def cmd_full_check(args):
     module = load_py115()
     state = load_state(args.state_path)
     source = state.get("qrcode_source") or args.qrcode_source
-    cookie = args.cookie or state.get("cookie")
+    cookie = resolve_cookie(args, state)
     if not cookie:
         session = state.get("qrcode_session") or {}
         uid = args.uid or session.get("uid") or state.get("qrcode_uid")
