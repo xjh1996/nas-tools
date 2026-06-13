@@ -26,6 +26,26 @@ export class Golbal {
   static noImage = "../static/img/no-image.png";
   static noImage_person = "../static/img/person.png";
 
+  static imageProxyUrl(imageUrl) {
+    if (!imageUrl) {
+      return imageUrl;
+    }
+    try {
+      const url = new URL(imageUrl, window.location.origin);
+      if (url.origin === window.location.origin) {
+        return imageUrl;
+      }
+      const host = url.hostname.toLowerCase();
+      if ((url.protocol === "http:" || url.protocol === "https:") &&
+          (host === "image.tmdb.org" || host.endsWith(".doubanio.com"))) {
+        return `/image_proxy?url=${encodeURIComponent(imageUrl)}`;
+      }
+    } catch (e) {
+      return imageUrl;
+    }
+    return imageUrl;
+  }
+
   // 转换传值的空字符情况
   static repNull(value) {
     if (!value || value == "None" || value == "null" || value == "undefined") {

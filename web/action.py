@@ -7,7 +7,7 @@ import re
 import shutil
 import signal
 from math import floor
-from urllib.parse import unquote
+from urllib.parse import unquote, quote, urlparse
 
 import cn2an
 from flask_login import logout_user, current_user
@@ -45,6 +45,22 @@ from app.utils.types import RmtMode, OsType, SearchType, DownloaderType, SyncTyp
 from config import RMT_MEDIAEXT, TMDB_IMAGE_W500_URL, RMT_SUBEXT, Config
 from web.backend.search_torrents import search_medias_for_web, search_media_by_message
 from web.backend.web_utils import WebUtils
+
+
+def _image_proxy_host_allowed(host):
+    if not host:
+        return False
+    host = host.lower()
+    return host == "image.tmdb.org" or host.endswith(".doubanio.com")
+
+
+def _proxy_image_url(image_url):
+    if not image_url:
+        return image_url
+    parsed = urlparse(image_url)
+    if parsed.scheme not in ("http", "https") or not _image_proxy_host_allowed(parsed.hostname):
+        return image_url
+    return "/image_proxy?url=%s" % quote(image_url, safe="")
 
 
 class WebAction:
@@ -2573,6 +2589,7 @@ class WebAction:
                 'fav': fav,
                 'rssid': rssid
             })
+            res["image"] = _proxy_image_url(res.get("image"))
         return {"code": 0, "Items": res_list}
 
     def get_downloaded(self, data):

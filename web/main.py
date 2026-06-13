@@ -34,7 +34,7 @@ from app.speedlimiter import SpeedLimiter
 from app.subscribe import Subscribe
 from app.sync import Sync
 from app.torrentremover import TorrentRemover
-from app.utils import DomUtils, SystemUtils, ExceptionUtils, StringUtils
+from app.utils import DomUtils, SystemUtils, ExceptionUtils, StringUtils, RequestUtils
 from app.utils.types import *
 from config import PT_TRANSFER_INTERVAL, Config
 from web.action import WebAction
@@ -68,6 +68,37 @@ App.register_blueprint(apiv1_bp, url_prefix="/api/v1")
 App.register_blueprint(pan115_webdav_bp, url_prefix="/dav/115")
 App.add_url_rule("/dav/115", endpoint="pan115_webdav_root",
                  view_func=pan115_webdav, defaults={"req_path": ""}, methods=DAV_METHODS)
+
+
+def _image_proxy_host_allowed(host):
+    if not host:
+        return False
+    host = host.lower()
+    return host == "image.tmdb.org" or host.endswith(".doubanio.com")
+
+
+@App.route('/image_proxy', methods=['GET'])
+@login_required
+def image_proxy():
+    image_url = request.args.get("url")
+    parsed = parse.urlparse(image_url or "")
+    if parsed.scheme not in ("http", "https") or not _image_proxy_host_allowed(parsed.hostname):
+        return make_response("", 400)
+
+    headers = {
+        "User-Agent": Config().get_ua(),
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+    }
+    referer = "https://movie.douban.com/" if parsed.hostname.lower().endswith(".doubanio.com") else None
+    res = RequestUtils(headers=headers, referer=referer, proxies=Config().get_proxies(), timeout=10).get_res(image_url)
+    content_type = res.headers.get("Content-Type", "") if res else ""
+    if not res or res.status_code >= 400 or not content_type.lower().startswith("image/"):
+        return make_response("", 502)
+
+    response = make_response(res.content)
+    response.headers["Content-Type"] = content_type
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @App.after_request
