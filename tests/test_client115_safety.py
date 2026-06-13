@@ -98,3 +98,7 @@ def test_extract_title_year_candidates_from_mixed_title():
     )
 
     assert candidates == [("Big Buck Bunny", "2008")]
+
+
+def test_wait_for_path_returns_false_for_missing_path():
+    assert Client115._wait_for_path("/tmp/nas-tools-missing-path-for-test", attempts=1, interval=0) is False

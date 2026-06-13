@@ -1,6 +1,7 @@
 import os
 import posixpath
 import re
+from time import sleep
 
 import log
 from app.downloader.client._base import _IDownloadClient
@@ -363,6 +364,8 @@ class Client115(_IDownloadClient):
     def _finish_transfer_side_effects(self, filetransfer, media, local_source, local_target, rmt_mode):
         if os.path.exists(local_source):
             media.size = os.path.getsize(local_source)
+        elif os.path.exists(local_target):
+            media.size = os.path.getsize(local_target)
         media.set_tmdb_info(filetransfer.media.get_tmdb_info(mtype=media.type,
                                                              tmdbid=media.tmdb_id,
                                                              append_to_response="all"))
@@ -374,13 +377,21 @@ class Client115(_IDownloadClient):
                                                       out_path=local_target,
                                                       dest=target_dir,
                                                       media_info=media)
-        if filetransfer._scraper_flag and os.path.exists(target_dir):
+        if filetransfer._scraper_flag and self._wait_for_path(target_dir):
             filetransfer.scraper.gen_scraper_files(media=media,
                                                    scraper_nfo=filetransfer._scraper_nfo,
                                                    scraper_pic=filetransfer._scraper_pic,
                                                    dir_path=target_dir,
                                                    file_name=file_base,
                                                    file_ext=file_ext)
+
+    @staticmethod
+    def _wait_for_path(path, attempts=6, interval=2):
+        for _ in range(max(1, attempts)):
+            if os.path.exists(path):
+                return True
+            sleep(interval)
+        return False
 
     def _get_local_media_files(self, path, min_filesize):
         from app.utils import PathUtils
@@ -404,10 +415,19 @@ class Client115(_IDownloadClient):
             return ""
         if media.type == MediaType.MOVIE:
             dir_name, file_name = filetransfer.get_moive_dest_path(media)
-            local_target = os.path.join(dest, media.category, dir_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1]))
+            target_parts = [dest]
+            if filetransfer._movie_category_flag and media.category:
+                target_parts.append(media.category)
+            target_parts.extend([dir_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1])])
+            local_target = os.path.join(*target_parts)
         else:
             dir_name, season_name, file_name = filetransfer.get_tv_dest_path(media)
-            local_target = os.path.join(dest, media.category, dir_name, season_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1]))
+            category_flag = filetransfer._anime_category_flag if media.type == MediaType.ANIME else filetransfer._tv_category_flag
+            target_parts = [dest]
+            if category_flag and media.category:
+                target_parts.append(media.category)
+            target_parts.extend([dir_name, season_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1])])
+            local_target = os.path.join(*target_parts)
         return self._local_to_remote_path(local_target)
 
     def _local_to_remote_path(self, path):
