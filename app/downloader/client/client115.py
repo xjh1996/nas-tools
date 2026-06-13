@@ -1,4 +1,5 @@
 import os
+import posixpath
 
 import log
 from app.downloader.client._base import _IDownloadClient
@@ -20,6 +21,7 @@ class Client115(_IDownloadClient):
     lasthash = None
     _persist_config = False
     _task_list_max_pages = 1
+    _transfer_roots = []
 
     def __init__(self, config=None):
         if config:
@@ -36,6 +38,7 @@ class Client115(_IDownloadClient):
             provider_type = Pan115Provider.resolve_provider_type(self._client_config)
             provider_cls = self._get_provider_cls(provider_type)
             self._task_list_max_pages = self._safe_int(self._client_config.get("task_list_max_pages"), 1)
+            self._transfer_roots = self._resolve_transfer_roots()
             self.downclient = provider_cls(self._client_config, persist=self._persist_config)
 
     @staticmethod
@@ -112,6 +115,9 @@ class Client115(_IDownloadClient):
             task_id = torrent.get("info_hash")
             if not path or not name or not task_id:
                 continue
+            if not self._is_transfer_path(path):
+                log.debug(f"【{self.client_type}】跳过非下载目录任务：{path}/{name}")
+                continue
             true_path = self.get_replace_path(path)
             trans_tasks.append({
                 "path": os.path.join(true_path, name).replace("\\", "/"),
@@ -146,10 +152,52 @@ class Client115(_IDownloadClient):
         return False
 
     def set_torrents_status(self, ids, **kwargs):
-        return self.delete_torrents(ids=ids, delete_file=False)
+        # 115 offline tasks do not support qB/TR style tags or status labels.
+        # Treating "mark as processed" as "delete task" can remove unrelated
+        # cloud tasks when a transfer attempt fails, so keep this intentionally
+        # non-destructive.
+        log.info(f"【{self.client_type}】不支持设置任务标签/状态，跳过任务状态更新：{ids}")
+        return False
 
     def get_download_dirs(self):
         return []
+
+    def _resolve_transfer_roots(self):
+        roots = []
+        for path in [
+            self._client_config.get("remote_download_path"),
+            self._client_config.get("download_path")
+        ]:
+            root = self._normalize_remote_path(path)
+            if root and root != "/" and root not in roots:
+                roots.append(root)
+        for attr in Config().get_config('downloaddir') or []:
+            root = self._normalize_remote_path(attr.get("save_path"))
+            if root and root != "/" and root not in roots:
+                roots.append(root)
+        return roots
+
+    @classmethod
+    def _normalize_remote_path(cls, path):
+        path = (path or "").replace("\\", "/").strip()
+        if not path:
+            return ""
+        if not path.startswith("/"):
+            path = "/%s" % path
+        if path == "/根目录":
+            path = "/"
+        elif path.startswith("/根目录/"):
+            path = path[len("/根目录"):]
+        return posixpath.normpath(path) if path != "/" else "/"
+
+    def _is_transfer_path(self, path):
+        if not self._transfer_roots:
+            return True
+        normalized_path = self._normalize_remote_path(path)
+        for root in self._transfer_roots:
+            if normalized_path == root or normalized_path.startswith("%s/" % root.rstrip("/")):
+                return True
+        return False
 
     def change_torrent(self, **kwargs):
         return False
