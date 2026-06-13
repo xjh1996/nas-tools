@@ -272,29 +272,55 @@ class Client115(_IDownloadClient):
 
     def _get_history_tmdb_info(self, task, media_helper):
         history = self._match_download_history(task)
-        if not history:
-            return None, None
-        media_type = self._media_type_from_history(history)
-        if not media_type:
-            return None, None
-        tmdb_info = media_helper.get_tmdb_info(mtype=media_type,
-                                               tmdbid=history.TMDBID,
-                                               append_to_response="all")
-        if not tmdb_info:
-            return None, None
-        log.info("【%s】使用下载历史识别媒体：%s (%s)" % (self.client_type, history.TITLE, history.YEAR))
-        return tmdb_info, media_type
+        if history:
+            media_type = self._media_type_from_history(history)
+            if media_type:
+                tmdb_info = media_helper.get_tmdb_info(mtype=media_type,
+                                                       tmdbid=history.TMDBID,
+                                                       append_to_response="all")
+                if tmdb_info:
+                    log.info("【%s】使用下载历史识别媒体：%s (%s)" % (self.client_type, history.TITLE, history.YEAR))
+                    return tmdb_info, media_type
+        return self._get_task_name_tmdb_info(task, media_helper)
+
+    def _get_task_name_tmdb_info(self, task, media_helper):
+        for name in self._task_match_names(task):
+            for title, year in self._extract_title_year_candidates(name):
+                media_info = media_helper.get_media_info(title="%s %s" % (title, year),
+                                                         mtype=MediaType.MOVIE,
+                                                         strict=True,
+                                                         cache=True,
+                                                         append_to_response="all")
+                if media_info and media_info.tmdb_info:
+                    log.info("【%s】使用任务名识别媒体：%s (%s)" % (self.client_type, media_info.title, media_info.year))
+                    return media_info.tmdb_info, media_info.type
+        return None, None
+
+    @staticmethod
+    def _task_match_names(task):
+        return [
+            task.get("name"),
+            os.path.basename(task.get("path") or ""),
+            posixpath.basename(task.get("remote_path") or "")
+        ]
+
+    @classmethod
+    def _extract_title_year_candidates(cls, value):
+        value = str(value or "")
+        candidates = []
+        for match in re.finditer(r"([A-Za-z][A-Za-z0-9 .:'&,+_-]{2,}?)\s*[\(\[]?\s*((?:19|20)\d{2})", value):
+            title = re.sub(r"[._+,-]+", " ", match.group(1))
+            title = re.sub(r"\s+", " ", title).strip(" .-'_+")
+            year = match.group(2)
+            if title and len(title) >= 3 and (title, year) not in candidates:
+                candidates.append((title, year))
+        return candidates
 
     def _match_download_history(self, task):
         from app.helper import DbHelper
 
         task_id = str(task.get("id") or "").lower()
-        task_names = [
-            task.get("name"),
-            os.path.basename(task.get("path") or ""),
-            posixpath.basename(task.get("remote_path") or "")
-        ]
-        task_tokens = [self._history_match_key(name) for name in task_names if name]
+        task_tokens = [self._history_match_key(name) for name in self._task_match_names(task) if name]
 
         for history in DbHelper().get_download_history(num=100) or []:
             enclosure = str(history.ENCLOSURE or "").lower()

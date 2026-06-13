@@ -90,3 +90,11 @@ def test_history_tokens_match_task_name_and_title():
     history_tokens = [Client115._history_match_key("肥兔子邦尼 Big Buck Bunny 2008 WEB 2160p")]
 
     assert Client115._history_tokens_match(task_tokens, history_tokens) is True
+
+
+def test_extract_title_year_candidates_from_mixed_title():
+    candidates = Client115._extract_title_year_candidates(
+        "肥兔子邦尼 Big Buck Bunny(2008 荷兰)[WEB][4000x2250]"
+    )
+
+    assert candidates == [("Big Buck Bunny", "2008")]
