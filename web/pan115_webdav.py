@@ -14,9 +14,9 @@ pan115_webdav_bp = Blueprint("pan115_webdav", __name__)
 DAV_METHODS = ["OPTIONS", "PROPFIND", "HEAD", "GET", "MKCOL", "DELETE", "MOVE", "PUT"]
 
 
-@pan115_webdav_bp.route("", defaults={"req_path": ""}, methods=DAV_METHODS)
-@pan115_webdav_bp.route("/", defaults={"req_path": ""}, methods=DAV_METHODS)
-@pan115_webdav_bp.route("/<path:req_path>", methods=DAV_METHODS)
+@pan115_webdav_bp.route("", defaults={"req_path": ""}, methods=DAV_METHODS, strict_slashes=False)
+@pan115_webdav_bp.route("/", defaults={"req_path": ""}, methods=DAV_METHODS, strict_slashes=False)
+@pan115_webdav_bp.route("/<path:req_path>", methods=DAV_METHODS, strict_slashes=False)
 def pan115_webdav(req_path):
     cfg = _config()
     if not _truthy(cfg.get("webdav_enabled")):
