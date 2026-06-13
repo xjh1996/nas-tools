@@ -1,4 +1,7 @@
+import tempfile
+
 from app.downloader.client.client115 import Client115
+from app.utils.types import MediaType
 
 
 class FakeClient115(Client115):
@@ -102,3 +105,59 @@ def test_extract_title_year_candidates_from_mixed_title():
 
 def test_wait_for_path_returns_false_for_missing_path():
     assert Client115._wait_for_path("/tmp/nas-tools-missing-path-for-test", attempts=1, interval=0) is False
+
+
+class FakeMovieMedia:
+    type = MediaType.MOVIE
+    category = "动画电影"
+
+
+class FakeFileTransfer:
+    _movie_category_flag = False
+
+    @staticmethod
+    def _FileTransfer__get_best_target_path(mtype, in_path=None, size=0):
+        return "/tmp/nas-tools-test-library/movies"
+
+    @staticmethod
+    def get_moive_dest_path(media):
+        return "大雄兔 (2008)", "大雄兔 (2008)"
+
+
+def test_build_remote_movie_target_respects_disabled_category():
+    client = object.__new__(Client115)
+    client._local_remote_roots = lambda: [
+        ("/tmp/nas-tools-test-downloads", "/影音库/downloads"),
+        ("/tmp/nas-tools-test-library/movies", "/影音库/library/movies"),
+    ]
+
+    with tempfile.NamedTemporaryFile(dir="/tmp", suffix=".mp4") as source:
+        target = client._build_remote_target_path(
+            FakeFileTransfer(),
+            FakeMovieMedia(),
+            "/tmp/nas-tools-test-downloads/movie",
+            source.name,
+        )
+
+    assert target == "/影音库/library/movies/大雄兔 (2008)/大雄兔 (2008).mp4"
+
+
+def test_build_remote_movie_target_respects_enabled_category():
+    class CategorizedFileTransfer(FakeFileTransfer):
+        _movie_category_flag = True
+
+    client = object.__new__(Client115)
+    client._local_remote_roots = lambda: [
+        ("/tmp/nas-tools-test-downloads", "/影音库/downloads"),
+        ("/tmp/nas-tools-test-library/movies", "/影音库/library/movies"),
+    ]
+
+    with tempfile.NamedTemporaryFile(dir="/tmp", suffix=".mp4") as source:
+        target = client._build_remote_target_path(
+            CategorizedFileTransfer(),
+            FakeMovieMedia(),
+            "/tmp/nas-tools-test-downloads/movie",
+            source.name,
+        )
+
+    assert target == "/影音库/library/movies/动画电影/大雄兔 (2008)/大雄兔 (2008).mp4"
