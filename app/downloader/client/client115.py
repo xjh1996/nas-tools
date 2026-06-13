@@ -10,6 +10,7 @@ from app.downloader.client.pan115_models import TASK_DISPLAY_STATE, Pan115Provid
 from app.downloader.client.pan115_open import Pan115OpenProvider
 from app.downloader.client.pan115_session import Pan115SessionProvider
 from app.utils import StringUtils
+from app.utils.torrent import Torrent
 from app.utils.types import DownloaderType, MediaType, RmtMode
 from config import Config, RMT_MEDIAEXT
 
@@ -137,6 +138,8 @@ class Client115(_IDownloadClient):
     def add_torrent(self, content, download_dir=None, **kwargs):
         if not self.downclient:
             return False
+        if not isinstance(content, str):
+            content = Torrent.content_to_magnet(content, title=kwargs.get("title"))
         if not isinstance(content, str):
             log.info(f"【{self.client_type}】暂不支持非链接下载")
             return None

@@ -1,6 +1,7 @@
 import os.path
 import re
 import datetime
+import hashlib
 from urllib.parse import quote, unquote
 
 from bencode import bdecode
@@ -120,6 +121,55 @@ class Torrent:
             return None, None, "下载种子出错，状态码：%s" % req.status_code
 
         return file_path, file_content, ""
+
+    @staticmethod
+    def content_to_magnet(content, title=None):
+        """
+        Convert torrent bytes to a magnet link by calculating the info hash.
+        """
+        if not content:
+            return None
+        if isinstance(content, str):
+            if content.startswith("magnet:"):
+                return Torrent.add_trackers_to_magnet(url=content, title=title)
+            content = content.encode()
+        try:
+            torrent = bdecode(content)
+            info = torrent.get("info") if isinstance(torrent, dict) else None
+            if not info:
+                return None
+            if not title:
+                name = info.get("name") if isinstance(info, dict) else None
+                if isinstance(name, bytes):
+                    title = name.decode("utf-8", "ignore")
+                elif name:
+                    title = str(name)
+            info_hash = hashlib.sha1(Torrent._bencode(info)).hexdigest()
+            return Torrent.convert_hash_to_magnet(hash_text=info_hash, title=title or info_hash)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _bencode(value):
+        if isinstance(value, int):
+            return b"i" + str(value).encode("ascii") + b"e"
+        if isinstance(value, bytes):
+            return str(len(value)).encode("ascii") + b":" + value
+        if isinstance(value, str):
+            data = value.encode("utf-8")
+            return str(len(data)).encode("ascii") + b":" + data
+        if isinstance(value, list):
+            return b"l" + b"".join(Torrent._bencode(item) for item in value) + b"e"
+        if isinstance(value, dict):
+            items = []
+            for key, item_value in value.items():
+                key_bytes = key if isinstance(key, bytes) else str(key).encode("utf-8")
+                items.append((key_bytes, item_value))
+            return b"d" + b"".join(
+                Torrent._bencode(key) + Torrent._bencode(item_value)
+                for key, item_value in sorted(items, key=lambda item: item[0])
+            ) + b"e"
+        raise TypeError(f"unsupported bencode value: {type(value)!r}")
 
     @staticmethod
     def convert_hash_to_magnet(hash_text, title):
