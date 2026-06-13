@@ -331,15 +331,23 @@ class Downloader:
                 else:
                     return
                 for task in trans_tasks:
-                    done_flag, done_msg = self.filetransfer.transfer_media(in_from=self._default_client_type,
-                                                                           in_path=task.get("path"),
-                                                                           rmt_mode=self._pt_rmt_mode)
+                    remote_transfer_result = None
+                    if hasattr(self.default_client, "transfer_media_task"):
+                        remote_transfer_result = self.default_client.transfer_media_task(task=task,
+                                                                                        rmt_mode=self._pt_rmt_mode)
+                    if remote_transfer_result is None:
+                        done_flag, done_msg = self.filetransfer.transfer_media(in_from=self._default_client_type,
+                                                                               in_path=task.get("path"),
+                                                                               rmt_mode=self._pt_rmt_mode)
+                    else:
+                        done_flag, done_msg = remote_transfer_result
                     if not done_flag:
                         log.warn("【Downloader】%s 转移失败：%s" % (task.get("path"), done_msg))
                         self.default_client.set_torrents_status(ids=task.get("id"),
                                                                 tags=task.get("tags"))
                     else:
-                        if self._pt_rmt_mode in [RmtMode.MOVE, RmtMode.RCLONE, RmtMode.MINIO]:
+                        if self._pt_rmt_mode in [RmtMode.MOVE, RmtMode.RCLONE, RmtMode.MINIO] \
+                                and not task.get("preserve_task"):
                             log.warn("【Downloader】移动模式下删除种子文件：%s" % task.get("id"))
                             self.default_client.delete_torrents(delete_file=True, ids=task.get("id"))
                         else:

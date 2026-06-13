@@ -8,8 +8,8 @@ from app.downloader.client.pan115_models import TASK_DISPLAY_STATE, Pan115Provid
 from app.downloader.client.pan115_open import Pan115OpenProvider
 from app.downloader.client.pan115_session import Pan115SessionProvider
 from app.utils import StringUtils
-from app.utils.types import DownloaderType
-from config import Config
+from app.utils.types import DownloaderType, MediaType, RmtMode
+from config import Config, RMT_MEDIAEXT
 
 
 class Client115(_IDownloadClient):
@@ -118,10 +118,13 @@ class Client115(_IDownloadClient):
             if not self._is_transfer_path(path):
                 log.debug(f"【{self.client_type}】跳过非下载目录任务：{path}/{name}")
                 continue
+            remote_path = posixpath.join(self._normalize_remote_path(path), name).replace("\\", "/")
             true_path = self.get_replace_path(path)
             trans_tasks.append({
                 "path": os.path.join(true_path, name).replace("\\", "/"),
-                "id": task_id
+                "remote_path": remote_path,
+                "id": task_id,
+                "preserve_task": True
             })
         return trans_tasks
 
@@ -198,6 +201,107 @@ class Client115(_IDownloadClient):
             if normalized_path == root or normalized_path.startswith("%s/" % root.rstrip("/")):
                 return True
         return False
+
+    def transfer_media_task(self, task, rmt_mode=None):
+        if rmt_mode != RmtMode.MOVE:
+            return None
+        local_path = task.get("path")
+        remote_path = task.get("remote_path")
+        if not local_path or not remote_path:
+            return None
+
+        from app.downloader.client.pan115_service import get_pan115_remote_fs
+        from app.filetransfer import FileTransfer
+        from app.mediaserver import MediaServer
+
+        filetransfer = FileTransfer()
+        remote_fs = get_pan115_remote_fs(config=self._client_config, persist=self._persist_config)
+        local_files = self._get_local_media_files(local_path, filetransfer._min_filesize)
+        if not local_files:
+            return False, "目录下未找到媒体文件"
+        medias = filetransfer.media.get_media_info_on_files(local_files)
+        if not medias:
+            return False, "检索媒体信息出错"
+
+        failed = []
+        moved = []
+        for local_file, media in medias.items():
+            if not media or not media.tmdb_info or not media.get_title_string():
+                failed.append("%s 无法识别媒体信息" % os.path.basename(local_file))
+                continue
+            source_path = self._local_to_remote_path(local_file) or self._join_remote_child(remote_path, local_file, local_path)
+            target_path = self._build_remote_target_path(filetransfer, media, local_path, local_file)
+            if not target_path:
+                failed.append("%s 目的路径不存在" % os.path.basename(local_file))
+                continue
+            ok, plan = remote_fs.move_path(source_path, target_path, execute=True, overwrite=filetransfer._filesize_cover)
+            if not ok:
+                failed.append(plan.get("error") or remote_fs.err or ("%s 移动失败" % os.path.basename(local_file)))
+                continue
+            moved.append(plan)
+
+        if moved and filetransfer._refresh_mediaserver:
+            MediaServer().refresh_root_library()
+        if failed:
+            return False, "；".join(failed)
+        return True, ""
+
+    def _get_local_media_files(self, path, min_filesize):
+        from app.utils import PathUtils
+
+        if os.path.isdir(path):
+            return PathUtils.get_dir_files(in_path=path, exts=RMT_MEDIAEXT, filesize=min_filesize)
+        if os.path.isfile(path) and os.path.splitext(path)[-1].lower() in RMT_MEDIAEXT:
+            return [path]
+        return []
+
+    def _join_remote_child(self, remote_root, local_file, local_root):
+        rel_path = os.path.relpath(local_file, local_root).replace("\\", "/")
+        if rel_path == ".":
+            return self._normalize_remote_path(remote_root)
+        return posixpath.join(self._normalize_remote_path(remote_root), rel_path)
+
+    def _build_remote_target_path(self, filetransfer, media, local_root, local_file):
+        media.size = os.path.getsize(local_file)
+        dest = filetransfer._FileTransfer__get_best_target_path(mtype=media.type, in_path=local_root, size=media.size)
+        if not dest:
+            return ""
+        if media.type == MediaType.MOVIE:
+            dir_name, file_name = filetransfer.get_moive_dest_path(media)
+            local_target = os.path.join(dest, media.category, dir_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1]))
+        else:
+            dir_name, season_name, file_name = filetransfer.get_tv_dest_path(media)
+            local_target = os.path.join(dest, media.category, dir_name, season_name, "%s%s" % (file_name, os.path.splitext(local_file)[-1]))
+        return self._local_to_remote_path(local_target)
+
+    def _local_to_remote_path(self, path):
+        normalized = os.path.normpath(path).replace("\\", "/")
+        for local_root, remote_root in self._local_remote_roots():
+            local_root = os.path.normpath(local_root).replace("\\", "/")
+            if normalized == local_root or normalized.startswith("%s/" % local_root.rstrip("/")):
+                rel = normalized[len(local_root.rstrip("/")):].strip("/")
+                return posixpath.join(remote_root, rel) if rel else remote_root
+        return ""
+
+    def _local_remote_roots(self):
+        roots = []
+        for attr in Config().get_config('downloaddir') or []:
+            if attr.get("container_path") and attr.get("save_path"):
+                roots.append((attr.get("container_path"), self._normalize_remote_path(attr.get("save_path"))))
+        media_cfg = Config().get_config('media') or {}
+        for local_key, remote_key in [
+            ("movie_path", "remote_movie_path"),
+            ("tv_path", "remote_tv_path"),
+            ("anime_path", "remote_anime_path")
+        ]:
+            local_paths = media_cfg.get(local_key) or []
+            if not isinstance(local_paths, list):
+                local_paths = [local_paths]
+            remote_path = self._normalize_remote_path(self._client_config.get(remote_key))
+            for local_path in local_paths:
+                if local_path and remote_path:
+                    roots.append((local_path, remote_path))
+        return roots
 
     def change_torrent(self, **kwargs):
         return False

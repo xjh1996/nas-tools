@@ -45,10 +45,31 @@ def test_transfer_tasks_are_limited_to_configured_download_root():
     assert client.get_transfer_task() == [
         {
             "path": "/mnt/115/downloads/movies/movie.mkv",
+            "remote_path": "/影音库/downloads/movies/movie.mkv",
             "id": "keep",
+            "preserve_task": True,
         }
     ]
 
 
 def test_normalize_remote_path_strips_115_root_label():
     assert Client115._normalize_remote_path("/根目录/影音库/downloads") == "/影音库/downloads"
+
+
+def test_local_to_remote_path_uses_download_and_library_roots():
+    client = object.__new__(Client115)
+    client._client_config = {
+        "remote_movie_path": "/影音库/library/movies",
+        "remote_tv_path": "/影音库/library/tv",
+        "remote_anime_path": "/影音库/library/anime",
+    }
+
+    assert client._normalize_remote_path("/根目录/影音库/downloads/movies") == "/影音库/downloads/movies"
+
+    client._local_remote_roots = lambda: [
+        ("/mnt/115/downloads", "/影音库/downloads"),
+        ("/mnt/115/library/movies", "/影音库/library/movies"),
+    ]
+
+    assert client._local_to_remote_path("/mnt/115/downloads/movies/a.mkv") == "/影音库/downloads/movies/a.mkv"
+    assert client._local_to_remote_path("/mnt/115/library/movies/大雄兔/a.mkv") == "/影音库/library/movies/大雄兔/a.mkv"
