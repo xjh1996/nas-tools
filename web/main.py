@@ -43,7 +43,7 @@ from web.backend.WXBizMsgCrypt3 import WXBizMsgCrypt
 from web.backend.user import User
 from web.backend.wallpaper import get_login_wallpaper
 from web.backend.web_utils import WebUtils
-from web.pan115_webdav import pan115_webdav_bp
+from web.pan115_webdav import DAV_METHODS, pan115_webdav, pan115_webdav_bp
 from web.security import require_auth
 
 # 配置文件锁
@@ -66,6 +66,8 @@ LoginManager.init_app(App)
 # API注册
 App.register_blueprint(apiv1_bp, url_prefix="/api/v1")
 App.register_blueprint(pan115_webdav_bp, url_prefix="/dav/115")
+App.add_url_rule("/dav/115", endpoint="pan115_webdav_root",
+                 view_func=pan115_webdav, defaults={"req_path": ""}, methods=DAV_METHODS)
 
 
 @App.after_request
