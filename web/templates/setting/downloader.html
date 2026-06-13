@@ -72,97 +72,44 @@
       {% if Type == 'client115' %}
         {% set C115 = Config.get('client115') or {} %}
         <div class="alert alert-info py-2">
-          <div class="fw-bold">115 当前推荐：Session / Cookie 或二维码会话</div>
-          <div class="small">OpenAPI 能力先保留为研究入口，默认不走这条链路；WebDAV 会基于 115 远端路径暴露给 Emby/Jellyfin。</div>
+          <div class="fw-bold">115 当前使用 Cookie/扫码会话鉴权</div>
+          <div class="small">扫码成功后会换成 Cookie 写入配置；OpenAPI 先不走。目录只配置一个 115 根目录，下载、整理和 WebDAV 都从它派生。</div>
         </div>
         <div class="card mb-3">
           <div class="card-header py-2">
             <h3 class="card-title">认证</h3>
           </div>
           <div class="card-body">
-            <div class="row">
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label required">Provider</label>
-                  <select class="form-select" id="client115.provider" onchange="pan115_toggle_config_sections()">
-                    <option value="session" {% if (C115.get('provider') or 'session') == 'session' %}selected{% endif %}>Session (Cookie/QRCode)</option>
-                    <option value="open" {% if C115.get('provider') == 'open' %}selected{% endif %}>Open API (Research)</option>
-                  </select>
-                </div>
-              </div>
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label required">认证方式</label>
-                  <select class="form-select" id="client115.auth_type" onchange="pan115_toggle_config_sections()">
-                    <option value="cookie" {% if (C115.get('auth_type') or 'cookie') == 'cookie' %}selected{% endif %}>Cookie</option>
-                    <option value="qrcode" {% if C115.get('auth_type') == 'qrcode' %}selected{% endif %}>QRCode</option>
-                    <option value="open" {% if C115.get('auth_type') == 'open' %}selected{% endif %}>Open API (Research)</option>
-                  </select>
-                </div>
-              </div>
+            <input type="hidden" id="client115.provider" value="session">
+            <input type="hidden" id="client115.auth_type" value="cookie">
+            <input type="hidden" id="client115.qrcode_token" value="{{ C115.get('qrcode_token') or '' }}">
+            <textarea class="d-none" id="client115.qrcode_session">{{ C115.get('qrcode_session') or '' }}</textarea>
+            <input type="hidden" id="client115.refresh_token" value="{{ C115.get('refresh_token') or '' }}">
+            <input type="hidden" id="client115.access_token" value="{{ C115.get('access_token') or '' }}">
+            <div class="mb-3">
+              <label class="form-label">Cookie <span class="form-help" title="115 网盘 Cookie。扫码登录成功后会自动写入这里" data-bs-toggle="tooltip">?</span></label>
+              <textarea class="form-control" id="client115.cookie" rows="3" placeholder="可以手工粘贴 Cookie，也可以点击下方扫码登录">{{ C115.get('cookie') or '' }}</textarea>
             </div>
-            <div class="pan115-session-section">
-              <div class="mb-3">
-                <label class="form-label">Cookie <span class="form-help" title="115 网盘 Cookie。二维码登录成功后也会回写到这里" data-bs-toggle="tooltip">?</span></label>
-                <textarea class="form-control" id="client115.cookie" rows="3" placeholder="USERSESSIONID=xxx;115_lang=zh;UID=xxx;CID=xxx;SEID=xxx">{{ C115.get('cookie') or '' }}</textarea>
-              </div>
-              <div class="row pan115-qrcode-section">
-                <div class="col-12 col-lg-4">
-                  <div class="mb-3">
-                    <label class="form-label">二维码设备</label>
-                    <select class="form-select" id="client115.qrcode_source">
-                      {% for Source in ['web', 'android', 'ios', 'linux', 'mac', 'windows', 'tv', 'alipaymini', 'wechatmini', 'qandroid'] %}
-                      <option value="{{ Source }}" {% if (C115.get('qrcode_source') or 'web') == Source %}selected{% endif %}>{{ Source }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
+            <div class="border rounded p-3 mb-3">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                  <div class="fw-bold">扫码登录</div>
+                  <div class="text-muted small">生成二维码后用 115 客户端扫码确认，再点击“完成扫码并写入 Cookie”。</div>
                 </div>
-                <div class="col-12 col-lg-8">
-                  <div class="mb-3">
-                    <label class="form-label">二维码 Token</label>
-                    <input type="text" class="form-control" id="client115.qrcode_token" value="{{ C115.get('qrcode_token') or '' }}" placeholder="扫码会话 uid">
-                  </div>
-                </div>
-                <div class="col-12">
-                  <div class="mb-3">
-                    <label class="form-label">二维码会话</label>
-                    <textarea class="form-control" id="client115.qrcode_session" rows="2" placeholder='{"uid":"...","time":123,"sign":"..."}'>{{ C115.get('qrcode_session') or '' }}</textarea>
-                  </div>
-                </div>
-                <div class="col-12">
-                  <div class="mb-3">
-                    <div class="btn-list">
-                      <button class="btn btn-sm" type="button" onclick="pan115_create_qrcode()">生成二维码</button>
-                      <button class="btn btn-sm" type="button" onclick="pan115_check_qrcode()">检查扫码状态</button>
-                      <button class="btn btn-sm btn-primary" type="button" onclick="pan115_exchange_qrcode()">换取 Cookie</button>
-                    </div>
-                    <div class="mt-2 d-none" id="pan115_qrcode_box">
-                      <img id="pan115_qrcode_img" src="" alt="115 qrcode" class="border rounded p-1 bg-white" style="width: 180px; height: 180px;">
-                      <div class="small text-muted mt-1">扫码并在 115 客户端确认后，点击“换取 Cookie”。</div>
-                    </div>
-                    <div class="mt-2" id="pan115_qrcode_status"></div>
-                  </div>
+                <div class="d-flex align-items-center gap-2">
+                  <select class="form-select form-select-sm w-auto" id="client115.qrcode_source">
+                    {% for Source in ['tv', 'web', 'android', 'ios', 'windows', 'mac', 'linux'] %}
+                    <option value="{{ Source }}" {% if (C115.get('qrcode_source') or 'tv') == Source %}selected{% endif %}>{{ Source }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn btn-sm" type="button" onclick="pan115_create_qrcode()">生成二维码</button>
+                  <button class="btn btn-sm btn-primary" type="button" onclick="pan115_exchange_qrcode()">完成扫码并写入 Cookie</button>
                 </div>
               </div>
-            </div>
-            <div class="pan115-open-section">
-              <div class="alert alert-warning py-2 small">
-                OpenAPI 目前只保留建模和研究入口，真实业务默认不使用它。
+              <div class="mt-3 d-none" id="pan115_qrcode_box">
+                <img id="pan115_qrcode_img" src="" alt="115 qrcode" class="border rounded p-1 bg-white" style="width: 180px; height: 180px;">
               </div>
-              <div class="row">
-                <div class="col-12 col-lg-6">
-                  <div class="mb-3">
-                    <label class="form-label">Open Refresh Token</label>
-                    <input type="text" class="form-control" id="client115.refresh_token" value="{{ C115.get('refresh_token') or '' }}">
-                  </div>
-                </div>
-                <div class="col-12 col-lg-6">
-                  <div class="mb-3">
-                    <label class="form-label">Open Access Token</label>
-                    <input type="text" class="form-control" id="client115.access_token" value="{{ C115.get('access_token') or '' }}">
-                  </div>
-                </div>
-              </div>
+              <div class="mt-2" id="pan115_qrcode_status"></div>
             </div>
             <div class="row">
               <div class="col-12 col-lg-8">
@@ -182,35 +129,19 @@
         </div>
         <div class="card mb-3">
           <div class="card-header py-2">
-            <h3 class="card-title">115 远端目录</h3>
+            <h3 class="card-title">115 目录</h3>
           </div>
           <div class="card-body">
-            <div class="row">
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label">115 下载根目录</label>
-                  <input type="text" class="form-control" id="client115.remote_download_path" value="{{ C115.get('remote_download_path') or '' }}" placeholder="/影音库/downloads">
-                </div>
-              </div>
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label">115 电影库目录</label>
-                  <input type="text" class="form-control" id="client115.remote_movie_path" value="{{ C115.get('remote_movie_path') or '' }}" placeholder="/影音库/library/movies">
-                </div>
-              </div>
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label">115 剧集库目录</label>
-                  <input type="text" class="form-control" id="client115.remote_tv_path" value="{{ C115.get('remote_tv_path') or '' }}" placeholder="/影音库/library/tv">
-                </div>
-              </div>
-              <div class="col-12 col-lg-6">
-                <div class="mb-3">
-                  <label class="form-label">115 动漫库目录</label>
-                  <input type="text" class="form-control" id="client115.remote_anime_path" value="{{ C115.get('remote_anime_path') or '' }}" placeholder="/影音库/library/anime">
-                </div>
-              </div>
+            <div class="mb-3">
+              <label class="form-label">115 根目录</label>
+              <input type="text" class="form-control" id="client115.remote_root_path" value="{{ C115.get('remote_root_path') or '/影音库' }}" placeholder="/影音库">
+              <div class="form-hint">系统会自动使用 <code>根目录/downloads</code> 作为下载区、<code>根目录/library</code> 作为 WebDAV 媒体库根目录。</div>
             </div>
+            <input type="hidden" id="client115.remote_download_path" value="{{ C115.get('remote_download_path') or '' }}">
+            <input type="hidden" id="client115.remote_movie_path" value="{{ C115.get('remote_movie_path') or '' }}">
+            <input type="hidden" id="client115.remote_tv_path" value="{{ C115.get('remote_tv_path') or '' }}">
+            <input type="hidden" id="client115.remote_anime_path" value="{{ C115.get('remote_anime_path') or '' }}">
+            <input type="hidden" id="client115.webdav_root" value="{{ C115.get('webdav_root') or '' }}">
           </div>
         </div>
         <div class="card mb-3">
@@ -236,17 +167,11 @@
               <div class="row">
                 <div class="col-12 col-lg-6">
                   <div class="mb-3">
-                    <label class="form-label">WebDAV 根目录</label>
-                    <input type="text" class="form-control" id="client115.webdav_root" value="{{ C115.get('webdav_root') or '' }}" placeholder="/影音库/library">
-                  </div>
-                </div>
-                <div class="col-12 col-lg-3">
-                  <div class="mb-3">
                     <label class="form-label">WebDAV 用户名</label>
                     <input type="text" class="form-control" id="client115.webdav_user" value="{{ C115.get('webdav_user') or '' }}" placeholder="nas">
                   </div>
                 </div>
-                <div class="col-12 col-lg-3">
+                <div class="col-12 col-lg-6">
                   <div class="mb-3">
                     <label class="form-label">WebDAV 密码</label>
                     <input type="password" class="form-control" id="client115.webdav_password" value="{{ C115.get('webdav_password') or '' }}">
@@ -277,10 +202,9 @@
               <div class="col-12 col-lg-auto">
                 <label class="form-label">快速目录</label>
                 <div class="btn-list">
-                  <button class="btn btn-sm" type="button" onclick="pan115_use_config_path('webdav_root')">WebDAV 根</button>
-                  <button class="btn btn-sm" type="button" onclick="pan115_use_config_path('remote_download_path')">下载根</button>
-                  <button class="btn btn-sm" type="button" onclick="pan115_use_config_path('remote_movie_path')">电影库</button>
-                  <button class="btn btn-sm" type="button" onclick="pan115_use_config_path('remote_tv_path')">剧集库</button>
+                  <button class="btn btn-sm" type="button" onclick="pan115_use_config_path('remote_root_path')">115 根</button>
+                  <button class="btn btn-sm" type="button" onclick="pan115_use_derived_path('downloads')">下载区</button>
+                  <button class="btn btn-sm" type="button" onclick="pan115_use_derived_path('library')">媒体库</button>
                 </div>
               </div>
             </div>
@@ -555,6 +479,10 @@
 
   //保存配置和测试配置
   function test_downloader_config(type) {
+    if (type === "client115") {
+      pan115_test_config();
+      return;
+    }
     $("#" + type + "_test_btn").text("测试中...").attr("disabled", true);
     save_config(type, function (ret) {
       let command;
@@ -676,6 +604,28 @@
     });
   }
 
+  function pan115_test_config() {
+    pan115_prepare_config_before_save();
+    let cookie = pan115_config_value("cookie");
+    if (!cookie) {
+      pan115_qrcode_status("还没有 Cookie。请先扫码登录，或手工粘贴 Cookie 后保存。", "warning");
+      $("#client115_test_btn").text("测试").attr("disabled", false);
+      return;
+    }
+    let path = pan115_config_value("webdav_root") || pan115_join_path(pan115_root_path(), "library");
+    $("#client115_test_btn").text("测试中...").attr("disabled", true);
+    pan115_status("正在用当前 Cookie 测试 115 媒体库目录：" + path, "info");
+    ajax_post("pan115_stat", {path: path}, function (ret) {
+      if (!ret || ret.code !== 0) {
+        $("#client115_test_btn").text("测试失败").attr("disabled", false);
+        pan115_status((ret && (ret.message || ret.msg)) || "115 测试失败，请检查 Cookie 或目录。", "danger");
+        return;
+      }
+      $("#client115_test_btn").text("测试成功").attr("disabled", false);
+      pan115_status("115 Cookie 可用，目录可访问：" + path, "success");
+    });
+  }
+
   function pan115_config_value(key) {
     let node = document.getElementById("client115." + key);
     if (!node) {
@@ -695,28 +645,46 @@
     node.value = value;
   }
 
+  function pan115_force_config_value(key, value) {
+    let node = document.getElementById("client115." + key);
+    if (!node) {
+      return;
+    }
+    node.value = value;
+  }
+
+  function pan115_root_path() {
+    return pan115_normalize_path(pan115_config_value("remote_root_path") || "/影音库").replace(/\/+$/, "") || "/";
+  }
+
+  function pan115_join_path(root, child) {
+    root = pan115_normalize_path(root || "/");
+    child = String(child || "").replace(/^\/+|\/+$/g, "");
+    if (!child) {
+      return root;
+    }
+    return (root === "/") ? "/" + child : root + "/" + child;
+  }
+
+  function pan115_sync_derived_paths() {
+    let root = pan115_root_path();
+    pan115_force_config_value("provider", "session");
+    pan115_force_config_value("auth_type", "cookie");
+    pan115_set_config_value("qrcode_source", "tv");
+    pan115_force_config_value("remote_download_path", pan115_join_path(root, "downloads"));
+    pan115_force_config_value("remote_movie_path", pan115_join_path(root, "library/movies"));
+    pan115_force_config_value("remote_tv_path", pan115_join_path(root, "library/tv"));
+    pan115_force_config_value("remote_anime_path", pan115_join_path(root, "library/anime"));
+    pan115_force_config_value("webdav_root", pan115_join_path(root, "library"));
+  }
+
   function pan115_prepare_config_before_save() {
-    pan115_set_config_value("provider", "session");
-    pan115_set_config_value("auth_type", "cookie");
-    pan115_set_config_value("qrcode_source", "web");
-    pan115_set_config_value("remote_download_path", "/影音库/downloads");
-    pan115_set_config_value("remote_movie_path", "/影音库/library/movies");
-    pan115_set_config_value("remote_tv_path", "/影音库/library/tv");
-    pan115_set_config_value("remote_anime_path", "/影音库/library/anime");
-    pan115_set_config_value("webdav_root", "/影音库/library");
+    pan115_sync_derived_paths();
   }
 
   function pan115_toggle_config_sections() {
-    let provider = pan115_config_value("provider") || "session";
-    let authType = pan115_config_value("auth_type") || "cookie";
     let webdavEnabled = !!pan115_config_value("webdav_enabled");
-    if (provider === "open") {
-      $("#client115\\.auth_type").val("open");
-      authType = "open";
-    }
-    $(".pan115-session-section").toggleClass("d-none", authType === "open");
-    $(".pan115-qrcode-section").toggleClass("d-none", authType !== "qrcode");
-    $(".pan115-open-section").toggleClass("d-none", authType !== "open");
+    pan115_sync_derived_paths();
     $(".pan115-webdav-section").toggleClass("opacity-50", !webdavEnabled);
     pan115_refresh_webdav_url();
   }
@@ -789,6 +757,7 @@
   }
 
   function pan115_refresh_webdav_url() {
+    pan115_sync_derived_paths();
     let root = pan115_config_value("webdav_root") || "/";
     let davUrl = window.location.origin + "/dav/115/";
     if (root && root !== "/") {
@@ -820,6 +789,11 @@
     pan115_list_path();
   }
 
+  function pan115_use_derived_path(child) {
+    $("#pan115_browser_path").val(pan115_join_path(pan115_root_path(), child));
+    pan115_list_path();
+  }
+
   function pan115_go_parent() {
     let path = pan115_normalize_path($("#pan115_browser_path").val());
     if (path === "/") {
@@ -833,6 +807,7 @@
   }
 
   function pan115_list_path(path) {
+    pan115_sync_derived_paths();
     path = pan115_normalize_path(path || $("#pan115_browser_path").val() || pan115_config_value("webdav_root") || "/");
     $("#pan115_browser_path").val(path);
     pan115_status("正在读取 115 目录：" + path, "info");
@@ -927,7 +902,7 @@
     pan115_toggle_config_sections();
     pan115_refresh_webdav_url();
     if (!$("#pan115_browser_path").val()) {
-      $("#pan115_browser_path").val(pan115_config_value("webdav_root") || "/");
+      $("#pan115_browser_path").val(pan115_config_value("webdav_root") || pan115_root_path());
     }
   });
 

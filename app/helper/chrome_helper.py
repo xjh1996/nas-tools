@@ -38,7 +38,11 @@ class ChromeHelper(object):
         if not uc.find_chrome_executable():
             return
         global driver_executable_path
-        driver_executable_path = ChromeDriverManager().install()
+        try:
+            driver_executable_path = ChromeDriverManager().install()
+        except Exception as err:
+            print("Chrome driver init skipped: %s" % err)
+            driver_executable_path = None
 
     @property
     def browser(self):

@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from flask import Blueprint, make_response, redirect, request
 
-from app.downloader.client.pan115_service import get_pan115_remote_fs
+from app.downloader.client.pan115_service import derive_pan115_paths, get_pan115_remote_fs
 from config import Config
 
 
@@ -14,6 +14,7 @@ pan115_webdav_bp = Blueprint("pan115_webdav", __name__)
 DAV_METHODS = ["OPTIONS", "PROPFIND", "HEAD", "GET", "MKCOL", "DELETE", "MOVE", "PUT"]
 
 
+@pan115_webdav_bp.route("", defaults={"req_path": ""}, methods=DAV_METHODS)
 @pan115_webdav_bp.route("/", defaults={"req_path": ""}, methods=DAV_METHODS)
 @pan115_webdav_bp.route("/<path:req_path>", methods=DAV_METHODS)
 def pan115_webdav(req_path):
@@ -54,7 +55,11 @@ def pan115_webdav(req_path):
 
 
 def _config():
-    return Config().get_config("client115") or {}
+    cfg = Config().get_config("client115") or {}
+    for key, value in derive_pan115_paths(cfg).items():
+        if not cfg.get(key):
+            cfg[key] = value
+    return cfg
 
 
 def _check_auth(cfg):

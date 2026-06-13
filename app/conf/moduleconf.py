@@ -712,6 +712,14 @@ class ModuleConf(object):
                     "type": "text",
                     "placeholder": "2"
                 },
+                "remote_root_path": {
+                    "id": "client115.remote_root_path",
+                    "required": False,
+                    "title": "115 根目录",
+                    "tooltip": "115 下载、整理、WebDAV 都从这个根目录派生；默认 /影音库",
+                    "type": "text",
+                    "placeholder": "/影音库"
+                },
                 "remote_download_path": {
                     "id": "client115.remote_download_path",
                     "required": False,

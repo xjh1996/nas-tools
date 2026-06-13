@@ -108,6 +108,9 @@ def init_system():
 
 def start_service():
     log.console("开始启动服务...")
+    if os.environ.get("NASTOOL_WEB_ONLY", "").lower() in ["1", "true", "yes"]:
+        log.console("NASTOOL_WEB_ONLY enabled, skipping background services")
+        return
     # 加载索引器配置
     IndexerHelper()
     # 启动虚拟显示

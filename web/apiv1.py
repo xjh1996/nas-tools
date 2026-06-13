@@ -2,7 +2,7 @@ from flask import Blueprint, request
 from flask_restx import Api, reqparse, Resource
 
 from app.brushtask import BrushTask
-from app.downloader.client.pan115_service import get_pan115_remote_fs
+from app.downloader.client.pan115_service import derive_pan115_paths, get_pan115_remote_fs
 from app.downloader.client.pan115_transfer_planner import Pan115TransferPlanner
 from app.rsschecker import RssChecker
 from app.sites import Sites
@@ -128,15 +128,18 @@ class Pan115Config(ClientResource):
         查询 115 远端配置
         """
         cfg = Config().get_config("client115") or {}
+        paths = derive_pan115_paths(cfg)
         return Pan115Success({
             "provider": cfg.get("provider") or "session",
             "auth_type": cfg.get("auth_type") or "cookie",
-            "remote_download_path": cfg.get("remote_download_path"),
-            "remote_movie_path": cfg.get("remote_movie_path"),
-            "remote_tv_path": cfg.get("remote_tv_path"),
-            "remote_anime_path": cfg.get("remote_anime_path"),
+            "remote_root_path": paths.get("remote_root_path"),
+            "remote_download_path": paths.get("remote_download_path"),
+            "remote_library_path": paths.get("remote_library_path"),
+            "remote_movie_path": paths.get("remote_movie_path"),
+            "remote_tv_path": paths.get("remote_tv_path"),
+            "remote_anime_path": paths.get("remote_anime_path"),
             "webdav_enabled": cfg.get("webdav_enabled"),
-            "webdav_root": cfg.get("webdav_root"),
+            "webdav_root": paths.get("webdav_root"),
             "webdav_user": cfg.get("webdav_user"),
             "webdav_readonly": cfg.get("webdav_readonly")
         })
