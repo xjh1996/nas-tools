@@ -33,8 +33,8 @@ class Pan115SessionProvider(Pan115Provider):
     def normalize_task(self, task):
         return self.client.normalize_task(task)
 
-    def gettasklist(self, page=1):
-        ret, tasks = self.client.gettasklist(page=page)
+    def gettasklist(self, page=1, max_pages=None):
+        ret, tasks = self.client.gettasklist(page=page, max_pages=max_pages)
         self.err = self.client.err
         return ret, tasks
 

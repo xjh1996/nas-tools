@@ -51,7 +51,8 @@ class ModuleConf(object):
 
     # 索引器
     INDEXER_DICT = {
-        "builtin": IndexerType.BUILTIN
+        "builtin": IndexerType.BUILTIN,
+        "jackett": IndexerType.JACKETT
     }
 
     # 媒体服务器
@@ -712,6 +713,14 @@ class ModuleConf(object):
                     "type": "text",
                     "placeholder": "2"
                 },
+                "task_list_max_pages": {
+                    "id": "client115.task_list_max_pages",
+                    "required": False,
+                    "title": "任务列表页数",
+                    "tooltip": "读取 115 离线任务列表最多页数；历史任务很多时建议保持 1，避免监控扫描阻塞",
+                    "type": "text",
+                    "placeholder": "1"
+                },
                 "remote_root_path": {
                     "id": "client115.remote_root_path",
                     "required": False,
@@ -764,9 +773,9 @@ class ModuleConf(object):
                     "id": "client115.webdav_root",
                     "required": False,
                     "title": "WebDAV 根目录",
-                    "tooltip": "映射到 /dav/115 的 115 远端根目录",
+                    "tooltip": "映射到 /dav/115 的 115 远端根目录。用于 NAS-Tools 转移时建议暴露 115 根目录，使 downloads 与 library 在同一挂载点下可见",
                     "type": "text",
-                    "placeholder": "/影音库/library"
+                    "placeholder": "/影音库"
                 },
                 "webdav_user": {
                     "id": "client115.webdav_user",
@@ -927,7 +936,40 @@ class ModuleConf(object):
     }
 
     # 索引器
-    INDEXER_CONF = {}
+    INDEXER_CONF = {
+        "jackett": {
+            "name": "Jackett",
+            "img_url": "../static/img/jackett.png",
+            "background": "bg-blue",
+            "test_command": "app.indexer.client.jackett|Jackett",
+            "config": {
+                "host": {
+                    "id": "jackett.host",
+                    "required": True,
+                    "title": "服务器地址",
+                    "tooltip": "Jackett 地址和端口，如 http://127.0.0.1:9117",
+                    "type": "text",
+                    "placeholder": "http://127.0.0.1:9117"
+                },
+                "api_key": {
+                    "id": "jackett.api_key",
+                    "required": True,
+                    "title": "Api Key",
+                    "tooltip": "Jackett 控制台右上角的 API Key",
+                    "type": "text",
+                    "placeholder": ""
+                },
+                "indexers": {
+                    "id": "jackett.indexers",
+                    "required": False,
+                    "title": "索引器 ID",
+                    "tooltip": "可选，每行一个 Jackett indexer ID；留空则使用所有已配置的 indexer",
+                    "type": "textarea",
+                    "placeholder": "all"
+                }
+            }
+        }
+    }
 
     # 发现过滤器
     DISCOVER_FILTER_CONF = {

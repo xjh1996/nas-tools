@@ -19,6 +19,7 @@ class Client115(_IDownloadClient):
     downclient = None
     lasthash = None
     _persist_config = False
+    _task_list_max_pages = 1
 
     def __init__(self, config=None):
         if config:
@@ -34,7 +35,15 @@ class Client115(_IDownloadClient):
         if self._client_config:
             provider_type = Pan115Provider.resolve_provider_type(self._client_config)
             provider_cls = self._get_provider_cls(provider_type)
+            self._task_list_max_pages = self._safe_int(self._client_config.get("task_list_max_pages"), 1)
             self.downclient = provider_cls(self._client_config, persist=self._persist_config)
+
+    @staticmethod
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def _get_provider_cls(provider_type):
@@ -64,7 +73,7 @@ class Client115(_IDownloadClient):
         tlist = []
         if not self.downclient:
             return tlist
-        ret, tasks = self.downclient.gettasklist(page=1)
+        ret, tasks = self.downclient.gettasklist(page=1, max_pages=self._task_list_max_pages)
         if not ret:
             log.info(f"【{self.client_type}】获取任务列表错误：{self.downclient.err}")
             return tlist

@@ -27,7 +27,7 @@ def resolve_pan115_root(config=None):
     if cfg.get("remote_root_path"):
         return normalize_pan115_path(cfg.get("remote_root_path"))
     for key, suffix in [
-        ("webdav_root", "library"),
+        ("webdav_root", ""),
         ("remote_download_path", "downloads"),
         ("remote_movie_path", "library/movies"),
         ("remote_tv_path", "library/tv"),
@@ -53,7 +53,7 @@ def derive_pan115_paths(config=None):
         "remote_movie_path": join_pan115_path(root, "library", "movies"),
         "remote_tv_path": join_pan115_path(root, "library", "tv"),
         "remote_anime_path": join_pan115_path(root, "library", "anime"),
-        "webdav_root": join_pan115_path(root, "library")
+        "webdav_root": root
     }
     return {
         key: normalize_pan115_path(cfg.get(key), default=value) if cfg.get(key) else value

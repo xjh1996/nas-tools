@@ -271,6 +271,8 @@ client115:
   user_agent:
   # API 限流，单位 QPS；留空时默认 session=2 / open=1
   limit_rate:
+  # 读取 115 离线任务列表最多页数；历史任务很多时建议保持 1
+  task_list_max_pages: 1
   # 115 离线下载默认根目录
   remote_download_path: /影音库/downloads
   # 115 电影库目录
@@ -281,8 +283,8 @@ client115:
   remote_anime_path: /影音库/library/anime
   # 是否启用内置 115 WebDAV
   webdav_enabled: false
-  # WebDAV 对外暴露的 115 根目录
-  webdav_root: /影音库/library
+  # WebDAV 对外暴露的 115 根目录；用于挂载时建议暴露 /影音库，使 downloads 与 library 在同一挂载点下可见
+  webdav_root: /影音库
   # WebDAV Basic Auth 用户名；留空则不校验
   webdav_user:
   # WebDAV Basic Auth 密码；留空则不校验

@@ -488,7 +488,7 @@ class Py115:
             self.err = "115 getuid exception: %s" % result
         return False
 
-    def gettasklist(self, page=1):
+    def gettasklist(self, page=1, max_pages=None):
         if not self.ensure_login():
             return False, []
         try:
@@ -515,7 +515,10 @@ class Py115:
                 tasks.extend(root_object.get("tasks") or [])
                 page_count = self._safe_int(root_object.get("page_count"), current_page)
                 count = self._safe_int(root_object.get("count"), len(tasks))
+                max_pages_num = self._safe_int(max_pages, 0)
                 if count == 0 or current_page >= page_count:
+                    break
+                if max_pages_num > 0 and current_page >= (page or 1) + max_pages_num - 1:
                     break
                 current_page += 1
             return True, tasks

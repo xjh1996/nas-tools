@@ -118,10 +118,16 @@
                   <input type="text" class="form-control" id="client115.user_agent" value="{{ C115.get('user_agent') or '' }}" placeholder="Mozilla/5.0 115Browser/...">
                 </div>
               </div>
-              <div class="col-12 col-lg-4">
+              <div class="col-12 col-lg-2">
                 <div class="mb-3">
                   <label class="form-label">API 限流 (QPS)</label>
                   <input type="text" class="form-control" id="client115.limit_rate" value="{{ C115.get('limit_rate') or '' }}" placeholder="2">
+                </div>
+              </div>
+              <div class="col-12 col-lg-2">
+                <div class="mb-3">
+                  <label class="form-label">任务页数</label>
+                  <input type="text" class="form-control" id="client115.task_list_max_pages" value="{{ C115.get('task_list_max_pages') or 1 }}" placeholder="1">
                 </div>
               </div>
             </div>
@@ -135,7 +141,7 @@
             <div class="mb-3">
               <label class="form-label">115 根目录</label>
               <input type="text" class="form-control" id="client115.remote_root_path" value="{{ C115.get('remote_root_path') or '/影音库' }}" placeholder="/影音库">
-              <div class="form-hint">系统会自动使用 <code>根目录/downloads</code> 作为下载区、<code>根目录/library</code> 作为 WebDAV 媒体库根目录。</div>
+              <div class="form-hint">系统会自动使用 <code>根目录/downloads</code> 作为下载区、<code>根目录/library</code> 作为媒体库；WebDAV 默认暴露根目录，方便挂载后同时访问下载区和媒体库。</div>
             </div>
             <input type="hidden" id="client115.remote_download_path" value="{{ C115.get('remote_download_path') or '' }}">
             <input type="hidden" id="client115.remote_movie_path" value="{{ C115.get('remote_movie_path') or '' }}">
@@ -612,7 +618,7 @@
       $("#client115_test_btn").text("测试").attr("disabled", false);
       return;
     }
-    let path = pan115_config_value("webdav_root") || pan115_join_path(pan115_root_path(), "library");
+    let path = pan115_config_value("webdav_root") || pan115_root_path();
     $("#client115_test_btn").text("测试中...").attr("disabled", true);
     pan115_status("正在用当前 Cookie 测试 115 媒体库目录：" + path, "info");
     ajax_post("pan115_stat", {path: path}, function (ret) {
@@ -675,7 +681,7 @@
     pan115_force_config_value("remote_movie_path", pan115_join_path(root, "library/movies"));
     pan115_force_config_value("remote_tv_path", pan115_join_path(root, "library/tv"));
     pan115_force_config_value("remote_anime_path", pan115_join_path(root, "library/anime"));
-    pan115_force_config_value("webdav_root", pan115_join_path(root, "library"));
+    pan115_force_config_value("webdav_root", root);
   }
 
   function pan115_prepare_config_before_save() {

@@ -36,7 +36,7 @@ class Pan115Provider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def gettasklist(self, page=1):
+    def gettasklist(self, page=1, max_pages=None):
         raise NotImplementedError
 
     @abstractmethod

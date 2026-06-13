@@ -276,7 +276,7 @@ class Pan115OpenProvider(Pan115Provider):
         })
         return normalized
 
-    def gettasklist(self, page=1):
+    def gettasklist(self, page=1, max_pages=None):
         if not self.ensure_login():
             return False, []
         try:
