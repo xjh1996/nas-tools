@@ -1,5 +1,6 @@
 import os
 import posixpath
+import re
 
 import log
 from app.downloader.client._base import _IDownloadClient
@@ -124,6 +125,7 @@ class Client115(_IDownloadClient):
                 "path": os.path.join(true_path, name).replace("\\", "/"),
                 "remote_path": remote_path,
                 "id": task_id,
+                "name": name,
                 "preserve_task": True
             })
         return trans_tasks
@@ -219,12 +221,17 @@ class Client115(_IDownloadClient):
         local_files = self._get_local_media_files(local_path, filetransfer._min_filesize)
         if not local_files:
             return False, "目录下未找到媒体文件"
-        medias = filetransfer.media.get_media_info_on_files(local_files)
+
+        tmdb_info, media_type = self._get_history_tmdb_info(task, filetransfer.media)
+        medias = filetransfer.media.get_media_info_on_files(local_files,
+                                                            tmdb_info=tmdb_info,
+                                                            media_type=media_type)
         if not medias:
             return False, "检索媒体信息出错"
 
         failed = []
         moved = []
+        refresh_library_items = []
         for local_file, media in medias.items():
             if not media or not media.tmdb_info or not media.get_title_string():
                 failed.append("%s 无法识别媒体信息" % os.path.basename(local_file))
@@ -238,13 +245,116 @@ class Client115(_IDownloadClient):
             if not ok:
                 failed.append(plan.get("error") or remote_fs.err or ("%s 移动失败" % os.path.basename(local_file)))
                 continue
+            local_target = self._remote_to_local_path(target_path)
+            if local_target:
+                self._finish_transfer_side_effects(filetransfer=filetransfer,
+                                                   media=media,
+                                                   local_source=local_file,
+                                                   local_target=local_target,
+                                                   rmt_mode=rmt_mode)
+                refresh_library_items.append({
+                    "type": media.type,
+                    "category": media.category,
+                    "title": media.title,
+                    "year": media.year,
+                    "target_path": os.path.dirname(local_target)
+                })
             moved.append(plan)
 
         if moved and filetransfer._refresh_mediaserver:
-            MediaServer().refresh_root_library()
+            if refresh_library_items:
+                MediaServer().refresh_library_by_items(refresh_library_items)
+            else:
+                MediaServer().refresh_root_library()
         if failed:
             return False, "；".join(failed)
         return True, ""
+
+    def _get_history_tmdb_info(self, task, media_helper):
+        history = self._match_download_history(task)
+        if not history:
+            return None, None
+        media_type = self._media_type_from_history(history)
+        if not media_type:
+            return None, None
+        tmdb_info = media_helper.get_tmdb_info(mtype=media_type,
+                                               tmdbid=history.TMDBID,
+                                               append_to_response="all")
+        if not tmdb_info:
+            return None, None
+        log.info("【%s】使用下载历史识别媒体：%s (%s)" % (self.client_type, history.TITLE, history.YEAR))
+        return tmdb_info, media_type
+
+    def _match_download_history(self, task):
+        from app.helper import DbHelper
+
+        task_id = str(task.get("id") or "").lower()
+        task_names = [
+            task.get("name"),
+            os.path.basename(task.get("path") or ""),
+            posixpath.basename(task.get("remote_path") or "")
+        ]
+        task_tokens = [self._history_match_key(name) for name in task_names if name]
+
+        for history in DbHelper().get_download_history(num=100) or []:
+            enclosure = str(history.ENCLOSURE or "").lower()
+            if task_id and task_id in enclosure:
+                return history
+            history_tokens = [
+                self._history_match_key(history.TORRENT),
+                self._history_match_key(history.TITLE)
+            ]
+            if self._history_tokens_match(task_tokens, history_tokens):
+                return history
+        return None
+
+    @staticmethod
+    def _media_type_from_history(history):
+        htype = history.TYPE
+        for mtype in [MediaType.MOVIE, MediaType.TV, MediaType.ANIME]:
+            if htype == mtype.value:
+                return mtype
+        return None
+
+    @staticmethod
+    def _history_match_key(value):
+        value = str(value or "").lower()
+        value = re.sub(r"[\W_]+", "", value, flags=re.UNICODE)
+        return value
+
+    @staticmethod
+    def _history_tokens_match(task_tokens, history_tokens):
+        for task_token in task_tokens:
+            if not task_token:
+                continue
+            for history_token in history_tokens:
+                if not history_token:
+                    continue
+                if task_token in history_token or history_token in task_token:
+                    return True
+        return False
+
+    def _finish_transfer_side_effects(self, filetransfer, media, local_source, local_target, rmt_mode):
+        if os.path.exists(local_source):
+            media.size = os.path.getsize(local_source)
+        media.set_tmdb_info(filetransfer.media.get_tmdb_info(mtype=media.type,
+                                                             tmdbid=media.tmdb_id,
+                                                             append_to_response="all"))
+        target_dir = os.path.dirname(local_target)
+        file_base, file_ext = os.path.splitext(os.path.basename(local_target))
+        filetransfer.dbhelper.insert_transfer_history(in_from=DownloaderType.Client115,
+                                                      rmt_mode=rmt_mode,
+                                                      in_path=local_source,
+                                                      out_path=local_target,
+                                                      dest=target_dir,
+                                                      media_info=media)
+        if filetransfer._scraper_flag and os.path.exists(target_dir):
+            filetransfer.scraper.gen_scraper_files(media=media,
+                                                   scraper_nfo=filetransfer._scraper_nfo,
+                                                   scraper_pic=filetransfer._scraper_pic,
+                                                   dir_path=target_dir,
+                                                   file_name=file_base,
+                                                   file_ext=file_ext)
 
     def _get_local_media_files(self, path, min_filesize):
         from app.utils import PathUtils
@@ -281,6 +391,15 @@ class Client115(_IDownloadClient):
             if normalized == local_root or normalized.startswith("%s/" % local_root.rstrip("/")):
                 rel = normalized[len(local_root.rstrip("/")):].strip("/")
                 return posixpath.join(remote_root, rel) if rel else remote_root
+        return ""
+
+    def _remote_to_local_path(self, path):
+        normalized = self._normalize_remote_path(path)
+        for local_root, remote_root in self._local_remote_roots():
+            remote_root = self._normalize_remote_path(remote_root)
+            if normalized == remote_root or normalized.startswith("%s/" % remote_root.rstrip("/")):
+                rel = normalized[len(remote_root.rstrip("/")):].strip("/")
+                return os.path.join(local_root, rel).replace("\\", "/") if rel else local_root
         return ""
 
     def _local_remote_roots(self):

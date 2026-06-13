@@ -47,6 +47,7 @@ def test_transfer_tasks_are_limited_to_configured_download_root():
             "path": "/mnt/115/downloads/movies/movie.mkv",
             "remote_path": "/影音库/downloads/movies/movie.mkv",
             "id": "keep",
+            "name": "movie.mkv",
             "preserve_task": True,
         }
     ]
@@ -73,3 +74,19 @@ def test_local_to_remote_path_uses_download_and_library_roots():
 
     assert client._local_to_remote_path("/mnt/115/downloads/movies/a.mkv") == "/影音库/downloads/movies/a.mkv"
     assert client._local_to_remote_path("/mnt/115/library/movies/大雄兔/a.mkv") == "/影音库/library/movies/大雄兔/a.mkv"
+
+
+def test_remote_to_local_path_uses_library_roots():
+    client = object.__new__(Client115)
+    client._local_remote_roots = lambda: [
+        ("/mnt/115/library/movies", "/影音库/library/movies"),
+    ]
+
+    assert client._remote_to_local_path("/影音库/library/movies/大雄兔/a.mkv") == "/mnt/115/library/movies/大雄兔/a.mkv"
+
+
+def test_history_tokens_match_task_name_and_title():
+    task_tokens = [Client115._history_match_key("肥兔子邦尼 Big Buck Bunny(2008)")]
+    history_tokens = [Client115._history_match_key("肥兔子邦尼 Big Buck Bunny 2008 WEB 2160p")]
+
+    assert Client115._history_tokens_match(task_tokens, history_tokens) is True
